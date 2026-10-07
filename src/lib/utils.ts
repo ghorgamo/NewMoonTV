@@ -355,3 +355,33 @@ export function convertTitleNumbers(
 export function normalizeTitleForMatch(title: string): string {
   return convertTitleNumbers(title, 'arabic').replace(/[\s\u3000]+/g, '');
 }
+
+/**
+ * 生成「最新更新」角标文案：从标题解析季数、从备注解析集数/完结状态。
+ * 例：标题「流人 第六季」+ 备注「更新至第24集」→「第6季 · 更新至第24集」；
+ * 解析不出任何内容时返回空字符串（不显示角标）。
+ */
+export function buildUpdateBadge(title: string, remarks?: string): string {
+  const parts: string[] = [];
+  const seasonMatch = title.match(
+    /第\s*([0-9]+|[零一二三四五六七八九十]+)\s*季/
+  );
+  if (seasonMatch) {
+    const raw = seasonMatch[1];
+    const n = /^\d+$/.test(raw)
+      ? parseInt(raw, 10)
+      : parseChineseNumber(raw);
+    if (n) parts.push(`第${n}季`);
+  }
+  const r = (remarks || '').trim();
+  if (r) {
+    const epMatch =
+      r.match(/更新至\s*第?\s*([0-9]+)\s*集/) || r.match(/第\s*([0-9]+)\s*集/);
+    if (epMatch) {
+      parts.push(`更新至第${parseInt(epMatch[1], 10)}集`);
+    } else if (r.includes('已完结') || r.includes('全集')) {
+      parts.push('已完结');
+    }
+  }
+  return parts.join(' · ');
+}

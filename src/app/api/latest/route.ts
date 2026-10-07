@@ -133,7 +133,8 @@ function mapItem(item: VodListItem, site: ApiSite): SearchResult {
 
 async function fetchLatestFromSite(
   site: ApiSite,
-  keywords: string[]
+  keywords: string[],
+  page: number
 ): Promise<SearchResult[]> {
   const classData = await fetchJson(`${site.api}?ac=list`);
   const classes: ClassItem[] = Array.isArray(classData?.class)
@@ -145,7 +146,9 @@ async function fetchLatestFromSite(
   if (typeIds.length === 0) return [];
 
   const pages = await Promise.allSettled(
-    typeIds.map((tid) => fetchJson(`${site.api}?ac=videolist&t=${tid}&pg=1`))
+    typeIds.map((tid) =>
+      fetchJson(`${site.api}?ac=videolist&t=${tid}&pg=${page}`)
+    )
   );
 
   const results: SearchResult[] = [];
@@ -171,7 +174,10 @@ export async function GET(request: Request) {
     );
   }
   const limitParam = parseInt(searchParams.get('limit') || '18', 10);
-  const limit = Math.min(Math.max(Number.isNaN(limitParam) ? 18 : limitParam, 1), 30);
+  const limit = Math.min(Math.max(Number.isNaN(limitParam) ? 18 : limitParam, 1), 60);
+  // pg：第几页（每个子分类各拉一页后归并）；上限防滥用，首页不传即第 1 页
+  const pageParam = parseInt(searchParams.get('pg') || '1', 10);
+  const page = Math.min(Math.max(Number.isNaN(pageParam) ? 1 : pageParam, 1), 5);
 
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
@@ -191,7 +197,7 @@ export async function GET(request: Request) {
   }
 
   const batches = await Promise.allSettled(
-    picked.map((site) => fetchLatestFromSite(site, keywords))
+    picked.map((site) => fetchLatestFromSite(site, keywords, page))
   );
 
   // 双源归并：按归一化标题去重，同一作品保留更新时间较新的一条

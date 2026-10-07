@@ -2,7 +2,8 @@
 
 'use client';
 
-import { RefreshCw } from 'lucide-react';
+import { ChevronRight, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 
 // 客户端收藏 API
@@ -27,11 +28,13 @@ function LatestSection({
   items,
   loading,
   type,
+  moreType,
 }: {
   title: string;
   items: SearchResult[];
   loading: boolean;
   type: string;
+  moreType: string;
 }) {
   return (
     <section className='mb-8'>
@@ -39,6 +42,13 @@ function LatestSection({
         <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
           {title}
         </h2>
+        <Link
+          href={`/latest?type=${moreType}`}
+          className='flex items-center text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+        >
+          查看更多
+          <ChevronRight className='w-4 h-4 ml-1' />
+        </Link>
       </div>
       <ScrollableRow>
         {loading
@@ -68,6 +78,7 @@ function LatestSection({
                   source_name={item.source_name}
                   year={item.year}
                   type={type}
+                  remarks={item.remarks}
                 />
               </div>
             ))}
@@ -307,24 +318,28 @@ function HomeClient() {
 
               <LatestSection
                 title='最新电影'
+                moreType='movie'
                 items={hotMovies}
                 loading={loading}
                 type='movie'
               />
               <LatestSection
                 title='最新剧集'
+                moreType='tv'
                 items={hotTvShows}
                 loading={loading}
                 type='tv'
               />
               <LatestSection
                 title='最新综艺'
+                moreType='show'
                 items={hotVarietyShows}
                 loading={loading}
                 type='tv'
               />
               <LatestSection
                 title='最新动漫'
+                moreType='anime'
                 items={hotAnime}
                 loading={loading}
                 type='tv'

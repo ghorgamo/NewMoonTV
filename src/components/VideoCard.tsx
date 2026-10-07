@@ -14,7 +14,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { processImageUrl } from '@/lib/utils';
+import { buildUpdateBadge, processImageUrl } from '@/lib/utils';
 
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 
@@ -33,6 +33,8 @@ interface VideoCardProps {
   douban_id?: string;
   onDelete?: () => void;
   rate?: string;
+  // 资源站备注（如「更新至第24集」），用于生成左下角最新季/集角标
+  remarks?: string;
   items?: SearchResult[];
   type?: string;
 }
@@ -52,6 +54,7 @@ export default function VideoCard({
   douban_id,
   onDelete,
   rate,
+  remarks,
   items,
   type = '',
 }: VideoCardProps) {
@@ -267,6 +270,12 @@ export default function VideoCard({
     return configs[from] || configs.search;
   }, [from, isAggregate, actualDoubanId, rate]);
 
+  // 最新季/集角标文案（仅在传入 remarks 时才可能非空）
+  const updateBadge = useMemo(
+    () => buildUpdateBadge(actualTitle, remarks),
+    [actualTitle, remarks]
+  );
+
   return (
     <div
       className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-[500]'
@@ -354,6 +363,13 @@ export default function VideoCard({
               <Link size={16} />
             </div>
           </a>
+        )}
+
+        {/* 最新季/集角标（左下角常驻，资源站栏目传入 remarks 时显示） */}
+        {updateBadge && (
+          <div className='absolute bottom-2 left-2 bg-black/70 text-white text-[11px] font-medium px-1.5 py-0.5 rounded shadow-md'>
+            {updateBadge}
+          </div>
         )}
       </div>
 
