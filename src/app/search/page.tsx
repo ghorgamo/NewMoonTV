@@ -13,6 +13,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
+import { normalizeTitleForMatch } from '@/lib/utils';
 
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -49,8 +50,9 @@ function SearchPageClient() {
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     searchResults.forEach((item) => {
-      // 使用 title + year + type 作为键，year 必然存在，但依然兜底 'unknown'
-      const key = `${item.title.replaceAll(' ', '')}-${
+      // 使用归一化 title + year + type 作为键：忽略空格与数字写法差异，
+      // 让「流人 第六季」与「流人第06季」聚合到同一组
+      const key = `${normalizeTitleForMatch(item.title)}-${
         item.year || 'unknown'
       }-${item.episodes.length === 1 ? 'movie' : 'tv'}`;
       const arr = map.get(key) || [];
@@ -59,12 +61,13 @@ function SearchPageClient() {
     });
     return Array.from(map.entries()).sort((a, b) => {
       // 优先排序：标题与搜索词完全一致的排在前面
-      const aExactMatch = a[1][0].title
-        .replaceAll(' ', '')
-        .includes(searchQuery.trim().replaceAll(' ', ''));
-      const bExactMatch = b[1][0].title
-        .replaceAll(' ', '')
-        .includes(searchQuery.trim().replaceAll(' ', ''));
+      const normalizedQuery = normalizeTitleForMatch(searchQuery);
+      const aExactMatch = normalizeTitleForMatch(a[1][0].title).includes(
+        normalizedQuery
+      );
+      const bExactMatch = normalizeTitleForMatch(b[1][0].title).includes(
+        normalizedQuery
+      );
 
       if (aExactMatch && !bExactMatch) return -1;
       if (!aExactMatch && bExactMatch) return 1;

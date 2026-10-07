@@ -245,3 +245,113 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
     );
   }
 }
+
+/**
+ * 标题数字写法归一化工具。
+ *
+ * 同一部剧在不同源站的标题数字写法不统一：
+ * 「流人 第六季」/「流人第6季」/「流人 第06季」/「流人 第６季」，
+ * 而上游搜索是整串包含匹配、按标题找源是全等比较，写法不同就会漏检/误判。
+ * 下列函数用于生成补搜变体与归一化比较。
+ */
+
+const CN_DIGIT_VALUES: Record<string, number> = {
+  零: 0,
+  〇: 0,
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+};
+const CN_NUM_CHARS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+
+/** 解析汉字数字（支持 0-999，如 六 / 十 / 十二 / 二十三 / 一百零五），解析不了返回 null */
+export function parseChineseNumber(text: string): number | null {
+  if (!text) return null;
+  let total = 0;
+  let current = 0;
+  let hasAny = false;
+  for (const ch of text) {
+    if (ch in CN_DIGIT_VALUES) {
+      current = CN_DIGIT_VALUES[ch];
+      hasAny = true;
+    } else if (ch === '十') {
+      total += (current === 0 ? 1 : current) * 10;
+      current = 0;
+      hasAny = true;
+    } else if (ch === '百') {
+      total += (current === 0 ? 1 : current) * 100;
+      current = 0;
+      hasAny = true;
+    } else {
+      return null;
+    }
+  }
+  return hasAny ? total + current : null;
+}
+
+/** 阿拉伯数字转汉字写法（0-100，如 6→六、12→十二、20→二十），超出范围返回原数字字符串 */
+export function toChineseNumber(n: number): string {
+  if (!Number.isInteger(n) || n < 0 || n > 100) return String(n);
+  if (n < 10) return CN_NUM_CHARS[n];
+  if (n < 20) return '十' + (n % 10 ? CN_NUM_CHARS[n % 10] : '');
+  if (n < 100) {
+    const tens = Math.floor(n / 10);
+    const ones = n % 10;
+    return CN_NUM_CHARS[tens] + '十' + (ones ? CN_NUM_CHARS[ones] : '');
+  }
+  return '一百';
+}
+
+export type TitleNumberMode = 'arabic' | 'arabicPadded' | 'chinese';
+
+/**
+ * 转换字符串中所有数字片段的写法（全角数字先转半角）：
+ * - arabic：汉字数字→阿拉伯，阿拉伯数字去掉前导零（六→6、06→6）
+ * - arabicPadded：同上，但 1-9 补零成两位（六→06、6→06）
+ * - chinese：阿拉伯数字→汉字（6→六，4 位年份等大数字保持不变），汉字数字保持原样
+ */
+export function convertTitleNumbers(
+  text: string,
+  mode: TitleNumberMode
+): string {
+  const halfWidth = text.replace(/[０-９]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xfee0)
+  );
+  const convertArabicRun = (run: string): string => {
+    const n = parseInt(run, 10);
+    if (mode === 'chinese') {
+      // 4 位及以上（年份等）不转汉字
+      return run.length >= 4 ? run : toChineseNumber(n);
+    }
+    if (mode === 'arabicPadded') {
+      return n < 10 ? String(n).padStart(2, '0') : String(n);
+    }
+    return String(n);
+  };
+  const convertChineseRun = (run: string): string => {
+    if (mode === 'chinese') return run;
+    const n = parseChineseNumber(run);
+    if (n === null) return run;
+    if (mode === 'arabicPadded') {
+      return n < 10 ? String(n).padStart(2, '0') : String(n);
+    }
+    return String(n);
+  };
+  return halfWidth
+    .replace(/\d+/g, convertArabicRun)
+    .replace(/[零〇一二三四五六七八九十百]+/g, convertChineseRun);
+}
+
+/**
+ * 标题匹配归一化：全角转半角、数字统一为阿拉伯写法并去掉前导零、去掉全部空白。
+ * 「流人 第六季」「流人第6季」「流人 第06季」归一化后完全一致。
+ */
+export function normalizeTitleForMatch(title: string): string {
+  return convertTitleNumbers(title, 'arabic').replace(/[\s\u3000]+/g, '');
+}

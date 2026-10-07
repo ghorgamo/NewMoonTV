@@ -1,6 +1,6 @@
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 import { SearchResult } from '@/lib/types';
-import { cleanHtmlTags } from '@/lib/utils';
+import { cleanHtmlTags, convertTitleNumbers } from '@/lib/utils';
 
 interface ApiSearchItem {
   vod_id: string;
@@ -15,7 +15,7 @@ interface ApiSearchItem {
   type_name?: string;
 }
 
-export async function searchFromApi(
+async function fetchSearchResults(
   apiSite: ApiSite,
   query: string
 ): Promise<SearchResult[]> {
@@ -185,6 +185,54 @@ export async function searchFromApi(
   } catch (error) {
     return [];
   }
+}
+
+// 生成搜索词变体：上游源站对标题做整串包含匹配，而标题写法不统一，只用原始词搜会漏检：
+// - 空格：豆瓣的「流人 第六季」在源站可能存为「流人第六季」
+// - 数字：同一季可能写成「第六季」/「第6季」/「第06季」
+// 因此在原词之外补搜空格变体与数字写法变体，合并去重。
+// 数字变体只基于去空格形生成，把单源请求数控制在上限内。
+const MAX_QUERY_VARIANTS = 6;
+
+function buildQueryVariants(query: string): string[] {
+  const variants = new Set<string>();
+  const trimmed = query.trim();
+  if (trimmed) variants.add(trimmed);
+  const normalized = trimmed.replace(/[\s\u3000]+/g, ' ');
+  if (normalized) variants.add(normalized);
+  const squashed = trimmed.replace(/[\s\u3000]+/g, '');
+  if (squashed) {
+    variants.add(squashed);
+    variants.add(convertTitleNumbers(squashed, 'arabic'));
+    variants.add(convertTitleNumbers(squashed, 'arabicPadded'));
+    variants.add(convertTitleNumbers(squashed, 'chinese'));
+  }
+  return Array.from(variants).slice(0, MAX_QUERY_VARIANTS);
+}
+
+export async function searchFromApi(
+  apiSite: ApiSite,
+  query: string
+): Promise<SearchResult[]> {
+  const variants = buildQueryVariants(query);
+  if (variants.length <= 1) {
+    return fetchSearchResults(apiSite, variants[0] ?? query);
+  }
+  const batches = await Promise.all(
+    variants.map((variant) => fetchSearchResults(apiSite, variant))
+  );
+  // 同一源内 id 唯一，按 id 去重合并（原词结果优先保留顺序）
+  const seen = new Set<string>();
+  const merged: SearchResult[] = [];
+  for (const batch of batches) {
+    for (const item of batch) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        merged.push(item);
+      }
+    }
+  }
+  return merged;
 }
 
 // 匹配 m3u8 链接的正则

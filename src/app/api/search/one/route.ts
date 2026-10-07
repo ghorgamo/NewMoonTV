@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
+import { normalizeTitleForMatch } from '@/lib/utils';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'edge';
@@ -43,7 +44,11 @@ export async function GET(request: Request) {
     }
 
     const results = await searchFromApi(targetSite, query);
-    let result = results.filter((r) => r.title === query);
+    // 按标题找源时用归一化比较，忽略空格与数字写法差异：
+    // 如 query「流人 第六季」应命中源标题「流人第6季」「流人 第06季」
+    let result = results.filter(
+      (r) => normalizeTitleForMatch(r.title) === normalizeTitleForMatch(query)
+    );
     if (!config.SiteConfig.DisableYellowFilter) {
       result = result.filter((result) => {
         const typeName = result.type_name || '';
