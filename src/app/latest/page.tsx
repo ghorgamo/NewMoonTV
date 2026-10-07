@@ -201,6 +201,7 @@ function LatestPageClient() {
                       year={item.year}
                       type={tab.cardType}
                       remarks={item.remarks}
+                      doubanScore={item.douban_score}
                     />
                   </div>
                 ))}

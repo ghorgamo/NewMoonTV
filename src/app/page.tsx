@@ -79,6 +79,7 @@ function LatestSection({
                   year={item.year}
                   type={type}
                   remarks={item.remarks}
+                  doubanScore={item.douban_score}
                 />
               </div>
             ))}

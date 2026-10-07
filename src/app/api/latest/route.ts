@@ -243,6 +243,65 @@ async function fetchLatestFromSite(
   return results;
 }
 
+// 经豆瓣代理按 ID 查 rexxar 详情拿评分（单条，带超时；失败/无分返回 null）
+async function fetchDoubanScore(
+  proxy: string,
+  doubanId: number,
+  kind: 'movie' | 'tv'
+): Promise<string | null> {
+  const target = `https://m.douban.com/rexxar/api/v2/${kind}/${doubanId}`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`${proxy}${encodeURIComponent(target)}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        Referer: 'https://movie.douban.com/',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as {
+      rating?: { value?: number };
+    } | null;
+    const value = data?.rating?.value;
+    return typeof value === 'number' && value > 0
+      ? value.toFixed(1)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// 给一批结果回填豆瓣评分：先按栏目类型查，无分再换另一类型试；分批并发，查不到留空
+async function fillDoubanScores(
+  results: SearchResult[],
+  category: string,
+  proxy: string
+): Promise<void> {
+  const primary: 'movie' | 'tv' = category === 'movie' ? 'movie' : 'tv';
+  const targets = results.filter((r) => r.douban_id);
+  const BATCH = 8;
+  for (let i = 0; i < targets.length; i += BATCH) {
+    await Promise.allSettled(
+      targets.slice(i, i + BATCH).map(async (item) => {
+        const id = item.douban_id as number;
+        let score = await fetchDoubanScore(proxy, id, primary);
+        if (!score) {
+          score = await fetchDoubanScore(
+            proxy,
+            id,
+            primary === 'movie' ? 'tv' : 'movie'
+          );
+        }
+        if (score) item.douban_score = score;
+      })
+    );
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const category = searchParams.get('category') || '';
@@ -300,8 +359,19 @@ export async function GET(request: Request) {
     (b.update_time || '').localeCompare(a.update_time || '')
   );
 
+  const finalResults = merged.slice(0, limit);
+
+  // 按豆瓣 ID 补查评分：代理优先用站点的豆瓣代理配置，
+  // 为空时回退图片代理（同为 ?url= 型 Worker，实测可代理豆瓣接口）
+  const doubanProxy =
+    (config.SiteConfig?.DoubanProxy || '').trim() ||
+    (config.SiteConfig?.ImageProxy || '').trim();
+  if (doubanProxy) {
+    await fillDoubanScores(finalResults, category, doubanProxy);
+  }
+
   return NextResponse.json(
-    { results: merged.slice(0, limit) },
+    { results: finalResults },
     {
       headers: {
         // 更新栏目要新鲜：5 分钟短缓存

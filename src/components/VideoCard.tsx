@@ -35,6 +35,8 @@ interface VideoCardProps {
   rate?: string;
   // 资源站备注（如「更新至第24集」），用于生成左下角最新季/集角标
   remarks?: string;
+  // 豆瓣评分（如「9.7」），用于左上角豆瓣分徽标
+  doubanScore?: string;
   items?: SearchResult[];
   type?: string;
 }
@@ -55,6 +57,7 @@ export default function VideoCard({
   onDelete,
   rate,
   remarks,
+  doubanScore,
   items,
   type = '',
 }: VideoCardProps) {
@@ -363,6 +366,13 @@ export default function VideoCard({
               <Link size={16} />
             </div>
           </a>
+        )}
+
+        {/* 豆瓣分徽标（左上角，资源站栏目传入 doubanScore 时显示） */}
+        {doubanScore && (
+          <div className='absolute top-2 left-2 bg-[#00b51d] text-white text-[11px] font-semibold px-1.5 py-0.5 rounded shadow-md'>
+            豆瓣 {doubanScore}
+          </div>
         )}
 
         {/* 最新季/集角标（左下角常驻，资源站栏目传入 remarks 时显示） */}

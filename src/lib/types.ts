@@ -97,6 +97,8 @@ export interface SearchResult {
   // 资源站备注（如「更新至第24集」「已完结」）与最后更新时间，供「最新更新」栏目使用
   remarks?: string;
   update_time?: string;
+  // 豆瓣评分（/api/latest 按豆瓣 ID 经站点豆瓣代理补查，查不到为空）
+  douban_score?: string;
 }
 
 // 豆瓣数据结构
