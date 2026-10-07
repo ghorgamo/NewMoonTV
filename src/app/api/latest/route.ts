@@ -27,6 +27,26 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
 // 不纳入任何栏目的子分类（成人向等）
 const EXCLUDED_CLASS_KEYWORDS = ['伦理'];
 
+// 类型筛选（/latest 页的类型排，与豆瓣剧集页的分类习惯对齐）：
+// - 地区类（guochan/oumei/riben/hanguo）：在当前栏目的大类下，只取子类名含关键词的子分类
+// - dongman：跨栏目，直接取动漫大类的分类集合
+// - jilupian：跨大类，取子类名含「记录/纪录」的分类（各源多写作「记录片」，挂在电影大类下）
+const GENRE_SUBCLASS_KEYWORDS: Record<string, string[]> = {
+  guochan: ['国产', '大陆'],
+  oumei: ['欧美'],
+  riben: ['日本'],
+  hanguo: ['韩国'],
+};
+
+// 地区类回退过滤：某些栏目（如电影按题材分子类）没有地区子分类，
+// 子类匹配为空时改为拉全栏目，再按条目的 vod_area 字段过滤。
+const GENRE_AREA_KEYWORDS: Record<string, string[]> = {
+  guochan: ['中国', '大陆', '香港', '台湾', '华语'],
+  oumei: ['美国', '英国', '法国', '德国', '加拿大', '西班牙', '意大利', '欧美'],
+  riben: ['日本'],
+  hanguo: ['韩国'],
+};
+
 // 不作为大类的分类名（名字含栏目关键词但并非该栏目，如「电影解说」是独立大类）
 const EXCLUDED_PARENT_KEYWORDS = ['解说'];
 
@@ -44,6 +64,7 @@ interface VodListItem {
   vod_time?: string;
   vod_play_url?: string;
   vod_class?: string;
+  vod_area?: string;
   vod_year?: string;
   vod_content?: string;
   vod_douban_id?: number;
@@ -68,20 +89,27 @@ async function fetchJson(url: string): Promise<any | null> {
   }
 }
 
+// 找出命中栏目关键词的大类（pid=0，排除「电影解说」这类伪大类）
+function findParentClasses(
+  classes: ClassItem[],
+  keywords: string[]
+): ClassItem[] {
+  return classes.filter(
+    (c) =>
+      Number(c.type_pid) === 0 &&
+      keywords.some((k) => (c.type_name || '').includes(k)) &&
+      !EXCLUDED_PARENT_KEYWORDS.some((k) => (c.type_name || '').includes(k))
+  );
+}
+
 // 解析某栏目在该源下的全部分类 id：大类本身 + 其全部子分类（排除名单除外）。
 // 内容大多挂在子分类下（国产剧/韩剧等），只拉大类会漏掉绝大部分。
 function resolveCategoryTypeIds(
   classes: ClassItem[],
   keywords: string[]
 ): number[] {
-  const parents = classes.filter(
-    (c) =>
-      Number(c.type_pid) === 0 &&
-      keywords.some((k) => (c.type_name || '').includes(k)) &&
-      !EXCLUDED_PARENT_KEYWORDS.some((k) => (c.type_name || '').includes(k))
-  );
   const ids = new Set<number>();
-  for (const parent of parents) {
+  for (const parent of findParentClasses(classes, keywords)) {
     ids.add(Number(parent.type_id));
     for (const c of classes) {
       if (
@@ -93,6 +121,45 @@ function resolveCategoryTypeIds(
     }
   }
   return Array.from(ids);
+}
+
+// 按类型筛选（genre）解析分类 id 集合，规则见 GENRE_SUBCLASS_KEYWORDS 上方注释
+function resolveGenreTypeIds(
+  classes: ClassItem[],
+  keywords: string[],
+  genre: string
+): number[] {
+  if (!genre || genre === 'all') {
+    return resolveCategoryTypeIds(classes, keywords);
+  }
+  if (genre === 'dongman') {
+    return resolveCategoryTypeIds(classes, CATEGORY_KEYWORDS.anime);
+  }
+  if (genre === 'jilupian') {
+    return classes
+      .filter(
+        (c) =>
+          /记录|纪录/.test(c.type_name || '') &&
+          !EXCLUDED_CLASS_KEYWORDS.some((k) => (c.type_name || '').includes(k))
+      )
+      .map((c) => Number(c.type_id));
+  }
+  const subKeywords = GENRE_SUBCLASS_KEYWORDS[genre];
+  if (subKeywords) {
+    const ids = new Set<number>();
+    for (const parent of findParentClasses(classes, keywords)) {
+      for (const c of classes) {
+        if (
+          Number(c.type_pid) === Number(parent.type_id) &&
+          subKeywords.some((k) => (c.type_name || '').includes(k))
+        ) {
+          ids.add(Number(c.type_id));
+        }
+      }
+    }
+    return Array.from(ids);
+  }
+  return resolveCategoryTypeIds(classes, keywords);
 }
 
 // 与 searchFromApi 相同的 m3u8 集数提取逻辑
@@ -134,7 +201,8 @@ function mapItem(item: VodListItem, site: ApiSite): SearchResult {
 async function fetchLatestFromSite(
   site: ApiSite,
   keywords: string[],
-  page: number
+  page: number,
+  genre: string
 ): Promise<SearchResult[]> {
   const classData = await fetchJson(`${site.api}?ac=list`);
   const classes: ClassItem[] = Array.isArray(classData?.class)
@@ -142,7 +210,13 @@ async function fetchLatestFromSite(
     : [];
   if (classes.length === 0) return [];
 
-  const typeIds = resolveCategoryTypeIds(classes, keywords);
+  let typeIds = resolveGenreTypeIds(classes, keywords, genre);
+  // 地区类筛选的子类匹配为空时，回退到全栏目 + vod_area 过滤
+  let areaKeywords: string[] | null = null;
+  if (typeIds.length === 0 && GENRE_AREA_KEYWORDS[genre]) {
+    typeIds = resolveCategoryTypeIds(classes, keywords);
+    areaKeywords = GENRE_AREA_KEYWORDS[genre];
+  }
   if (typeIds.length === 0) return [];
 
   const pages = await Promise.allSettled(
@@ -157,6 +231,12 @@ async function fetchLatestFromSite(
       continue;
     }
     for (const item of page.value.list as VodListItem[]) {
+      if (
+        areaKeywords &&
+        !areaKeywords.some((k) => (item.vod_area || '').includes(k))
+      ) {
+        continue;
+      }
       results.push(mapItem(item, site));
     }
   }
@@ -178,6 +258,8 @@ export async function GET(request: Request) {
   // pg：第几页（每个子分类各拉一页后归并）；上限防滥用，首页不传即第 1 页
   const pageParam = parseInt(searchParams.get('pg') || '1', 10);
   const page = Math.min(Math.max(Number.isNaN(pageParam) ? 1 : pageParam, 1), 5);
+  // genre：类型筛选（all/guochan/oumei/riben/hanguo/dongman/jilupian），不传即全部
+  const genre = searchParams.get('genre') || 'all';
 
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
@@ -197,7 +279,7 @@ export async function GET(request: Request) {
   }
 
   const batches = await Promise.allSettled(
-    picked.map((site) => fetchLatestFromSite(site, keywords, page))
+    picked.map((site) => fetchLatestFromSite(site, keywords, page, genre))
   );
 
   // 双源归并：按归一化标题去重，同一作品保留更新时间较新的一条

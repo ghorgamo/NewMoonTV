@@ -18,6 +18,17 @@ const TABS = [
   { label: '动漫', type: 'anime', category: 'anime', cardType: 'tv' },
 ] as const;
 
+// 类型筛选排（与豆瓣剧集页的分类习惯对齐），value 传给 /api/latest 的 genre 参数
+const GENRES = [
+  { label: '全部', value: 'all' },
+  { label: '国产', value: 'guochan' },
+  { label: '欧美', value: 'oumei' },
+  { label: '日本', value: 'riben' },
+  { label: '韩国', value: 'hanguo' },
+  { label: '动漫', value: 'dongman' },
+  { label: '纪录片', value: 'jilupian' },
+] as const;
+
 const PAGE_LIMIT = 24;
 
 function LatestPageClient() {
@@ -26,6 +37,7 @@ function LatestPageClient() {
   const typeParam = searchParams.get('type') || 'tv';
   const tab = TABS.find((t) => t.type === typeParam) || TABS[1];
 
+  const [genre, setGenre] = useState<string>('all');
   const [items, setItems] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -37,13 +49,13 @@ function LatestPageClient() {
   const fetchPage = useCallback(
     async (pg: number) => {
       const res = await fetch(
-        `/api/latest?category=${tab.category}&limit=${PAGE_LIMIT}&pg=${pg}`
+        `/api/latest?category=${tab.category}&genre=${genre}&limit=${PAGE_LIMIT}&pg=${pg}`
       );
       if (!res.ok) throw new Error('栏目数据请求失败');
       const data = await res.json();
       return (data.results || []) as SearchResult[];
     },
-    [tab.category]
+    [tab.category, genre]
   );
 
   // 跨页去重：同一作品只留一条（接口内已按页去重，这里防跨页重复）
@@ -119,7 +131,10 @@ function LatestPageClient() {
               {TABS.map((t) => (
                 <button
                   key={t.type}
-                  onClick={() => router.push(`/latest?type=${t.type}`)}
+                  onClick={() => {
+                    setGenre('all');
+                    router.push(`/latest?type=${t.type}`);
+                  }}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                     t.type === tab.type
                       ? 'bg-green-600 text-white'
@@ -130,6 +145,23 @@ function LatestPageClient() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 类型筛选 */}
+          <div className='mb-4 flex flex-wrap gap-2'>
+            {GENRES.map((g) => (
+              <button
+                key={g.value}
+                onClick={() => setGenre(g.value)}
+                className={`rounded-full border px-3.5 py-1 text-[13px] font-medium transition-colors ${
+                  genre === g.value
+                    ? 'border-green-600 bg-green-600 text-white'
+                    : 'border-gray-300 text-gray-600 hover:border-green-600 hover:text-green-600 dark:border-gray-600 dark:text-gray-300 dark:hover:border-green-500 dark:hover:text-green-400'
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
           </div>
 
           <p className='mb-6 text-sm text-gray-500 dark:text-gray-400'>
