@@ -94,6 +94,9 @@ export interface SearchResult {
   desc?: string;
   type_name?: string;
   douban_id?: number;
+  // 资源站备注（如「更新至第24集」「已完结」）与最后更新时间，供「最新更新」栏目使用
+  remarks?: string;
+  update_time?: string;
 }
 
 // 豆瓣数据结构
