@@ -96,11 +96,16 @@ function LatestPageClient() {
     };
   }, [fetchPage, takeFresh]);
 
-  const loadMore = async () => {
-    if (loadingMore || !hasMore) return;
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loading) return;
+    const next = pageRef.current + 1;
+    // 接口 pg 上限为 5，超出即到底
+    if (next > 5) {
+      setHasMore(false);
+      return;
+    }
     setLoadingMore(true);
     try {
-      const next = pageRef.current + 1;
       const results = await fetchPage(next);
       pageRef.current = next;
       const fresh = takeFresh(results);
@@ -110,13 +115,29 @@ function LatestPageClient() {
           (b.update_time || '').localeCompare(a.update_time || '')
         )
       );
-      setHasMore(results.length >= PAGE_LIMIT);
+      // 整页都是已见过的重复条目时同样视为到底，避免无限空转
+      setHasMore(results.length >= PAGE_LIMIT && fresh.length > 0);
     } catch {
-      // 加载失败保持现状，用户可再次点击
+      // 加载失败保持现状，继续滚动可再次触发
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [loadingMore, hasMore, loading, fetchPage, takeFresh]);
+
+  // 无限滚动：哨兵进入视口（提前 600px）自动加载下一页，取代“加载更多”按钮
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const ob = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: '600px 0px' }
+    );
+    ob.observe(el);
+    return () => ob.disconnect();
+  }, [loadMore]);
 
   return (
     <PageLayout>
@@ -173,9 +194,9 @@ function LatestPageClient() {
               {error}
             </div>
           ) : loading ? (
-            <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+            <div className='columns-3 gap-2 px-0 sm:px-2 sm:columns-4 sm:gap-8 lg:columns-5 xl:columns-6 2xl:columns-7'>
               {Array.from({ length: 12 }).map((_, index) => (
-                <div key={index} className='w-full'>
+                <div key={index} className='mb-12 w-full break-inside-avoid sm:mb-20'>
                   <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'></div>
                   <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
                 </div>
@@ -187,9 +208,12 @@ function LatestPageClient() {
             </div>
           ) : (
             <>
-              <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+              <div className='columns-3 gap-2 px-0 sm:px-2 sm:columns-4 sm:gap-8 lg:columns-5 xl:columns-6 2xl:columns-7'>
                 {items.map((item) => (
-                  <div key={`${item.source}-${item.id}`} className='w-full'>
+                  <div
+                    key={`${item.source}-${item.id}`}
+                    className='mb-12 w-full break-inside-avoid sm:mb-20'
+                  >
                     <VideoCard
                       from='search'
                       id={item.id}
@@ -207,18 +231,14 @@ function LatestPageClient() {
                 ))}
               </div>
 
-              <div className='mt-10 flex justify-center'>
-                {hasMore ? (
-                  <button
-                    onClick={loadMore}
-                    disabled={loadingMore}
-                    className='px-6 py-2.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors'
-                  >
-                    {loadingMore ? '加载中…' : '加载更多'}
-                  </button>
-                ) : (
+              {/* 无限滚动哨兵 + 状态提示（不再需要点击加载更多） */}
+              <div ref={sentinelRef} className='h-2' />
+              <div className='mt-6 flex justify-center pb-4'>
+                {loadingMore ? (
+                  <span className='text-sm text-gray-400'>加载中…</span>
+                ) : !hasMore ? (
                   <span className='text-sm text-gray-400'>没有更多了</span>
-                )}
+                ) : null}
               </div>
             </>
           )}
