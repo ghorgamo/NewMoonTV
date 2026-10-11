@@ -99,6 +99,7 @@ export interface SearchResult {
   update_time?: string;
   // 豆瓣评分（/api/latest 按豆瓣 ID 经站点豆瓣代理补查，查不到为空）
   douban_score?: string;
+  imdb_score?: string;
 }
 
 // 豆瓣数据结构

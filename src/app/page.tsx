@@ -80,6 +80,7 @@ function LatestSection({
                   type={type}
                   remarks={item.remarks}
                   doubanScore={item.douban_score}
+                  imdbScore={item.imdb_score}
                 />
               </div>
             ))}

@@ -37,6 +37,8 @@ interface VideoCardProps {
   remarks?: string;
   // 豆瓣评分（如「9.7」），用于左上角豆瓣分徽标
   doubanScore?: string;
+  // IMDb 评分（如「8.7」），用于左上角 IMDb 金色徽标
+  imdbScore?: string;
   items?: SearchResult[];
   type?: string;
 }
@@ -58,6 +60,7 @@ export default function VideoCard({
   rate,
   remarks,
   doubanScore,
+  imdbScore,
   items,
   type = '',
 }: VideoCardProps) {
@@ -368,10 +371,19 @@ export default function VideoCard({
           </a>
         )}
 
-        {/* 豆瓣分徽标（左上角，资源站栏目传入 doubanScore 时显示） */}
-        {doubanScore && (
-          <div className='absolute top-2 left-2 bg-[#00b51d] text-white text-[11px] font-semibold px-1.5 py-0.5 rounded shadow-md'>
-            豆瓣 {doubanScore}
+        {/* 评分徽标（左上角纵排：豆瓣绿 / IMDb 金，传入对应分数时显示） */}
+        {(doubanScore || imdbScore) && (
+          <div className='absolute top-2 left-2 flex flex-col items-start gap-1'>
+            {doubanScore && (
+              <div className='bg-[#00b51d] text-white text-[11px] font-semibold px-1.5 py-0.5 rounded shadow-md'>
+                豆瓣 {doubanScore}
+              </div>
+            )}
+            {imdbScore && (
+              <div className='bg-[#f5c518] text-black text-[11px] font-semibold px-1.5 py-0.5 rounded shadow-md'>
+                IMDb {imdbScore}
+              </div>
+            )}
           </div>
         )}
 

@@ -302,6 +302,150 @@ async function fillDoubanScores(
   }
 }
 
+// ---------- IMDb 评分回填（TMDB 查 imdb_id → OMDb 按 ID 查分） ----------
+// TMDB 本身不提供 IMDb 评分（vote_average 是 TMDB 用户分，不能冒充 IMDb 分），
+// 它只负责按中文标题找到 imdb_id；真分由 OMDb 按 ID 返回。
+// 两个 key 都配了才启用：Cloudflare 机密变量 TMDB_API_KEY / OMDB_API_KEY（服务端读取，不下发前端）。
+// OMDb 免费档 1000 次/天，靠下面两层缓存控额度：标题→imdb_id 永久缓存（进程内）、
+// imdb_id→评分缓存（命中 7 天、未命中 1 天）。
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchJsonTimeout(url: string, ms = 5000): Promise<any | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const imdbIdCache = new Map<string, string | null>();
+const imdbRatingCache = new Map<
+  string,
+  { score: string | null; ts: number }
+>();
+const RATING_TTL_MS = 7 * 24 * 3600 * 1000;
+const RATING_MISS_TTL_MS = 24 * 3600 * 1000;
+
+// 检索用基础标题：去掉「第X季/部/篇」「Season N」「S01」类后缀
+function baseTitleForSearch(title: string): string {
+  return title
+    .replace(/第[一二三四五六七八九十百零\d]+[季部篇]/g, '')
+    .replace(/\s*Season\s*\d+\s*$/i, '')
+    .replace(/\s*S\d{1,2}\s*$/i, '')
+    .trim();
+}
+
+function titleLooseMatch(candidate: string, target: string): boolean {
+  const a = normalizeTitleForMatch(baseTitleForSearch(candidate));
+  const b = normalizeTitleForMatch(baseTitleForSearch(target));
+  return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
+}
+
+async function tmdbFindImdbId(
+  apiKey: string,
+  title: string,
+  year: string,
+  kind: 'movie' | 'tv'
+): Promise<string | null> {
+  const cacheKey = `${kind}:${normalizeTitleForMatch(
+    baseTitleForSearch(title)
+  )}:${year}`;
+  if (imdbIdCache.has(cacheKey)) return imdbIdCache.get(cacheKey) ?? null;
+
+  let imdbId: string | null = null;
+  const queries = Array.from(
+    new Set([baseTitleForSearch(title), title].filter(Boolean))
+  );
+  outer: for (const q of queries) {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      query: q,
+      language: 'zh-CN',
+    });
+    if (year) params.set(kind === 'movie' ? 'year' : 'first_air_date_year', year);
+    const data = await fetchJsonTimeout(
+      `https://api.themoviedb.org/3/search/${kind}?${params.toString()}`
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results: any[] = Array.isArray(data?.results) ? data.results : [];
+    for (const r of results.slice(0, 5)) {
+      const cand =
+        kind === 'movie' ? r.title || r.original_title : r.name || r.original_name;
+      if (!cand || !titleLooseMatch(cand, title)) continue;
+      // 搜索结果不带 imdb_id：电影取详情、剧集取 external_ids
+      const detail =
+        kind === 'movie'
+          ? await fetchJsonTimeout(
+              `https://api.themoviedb.org/3/movie/${r.id}?api_key=${apiKey}`
+            )
+          : await fetchJsonTimeout(
+              `https://api.themoviedb.org/3/tv/${r.id}/external_ids?api_key=${apiKey}`
+            );
+      const idVal = detail?.imdb_id;
+      if (typeof idVal === 'string' && idVal.startsWith('tt')) {
+        imdbId = idVal;
+        break outer;
+      }
+    }
+  }
+  imdbIdCache.set(cacheKey, imdbId);
+  return imdbId;
+}
+
+async function omdbFetchRating(
+  apiKey: string,
+  imdbId: string
+): Promise<string | null> {
+  const now = Date.now();
+  const hit = imdbRatingCache.get(imdbId);
+  if (hit && now - hit.ts < (hit.score ? RATING_TTL_MS : RATING_MISS_TTL_MS)) {
+    return hit.score;
+  }
+  const data = await fetchJsonTimeout(
+    `https://www.omdbapi.com/?i=${imdbId}&apikey=${apiKey}`
+  );
+  const raw = data?.imdbRating;
+  const score =
+    typeof raw === 'string' && /^\d+(\.\d+)?$/.test(raw) ? raw : null;
+  imdbRatingCache.set(imdbId, { score, ts: now });
+  return score;
+}
+
+async function fillImdbScores(
+  results: SearchResult[],
+  category: string,
+  tmdbKey: string,
+  omdbKey: string
+): Promise<void> {
+  const primary: 'movie' | 'tv' = category === 'movie' ? 'movie' : 'tv';
+  const BATCH = 4;
+  for (let i = 0; i < results.length; i += BATCH) {
+    await Promise.allSettled(
+      results.slice(i, i + BATCH).map(async (item) => {
+        const year = item.year && item.year !== 'unknown' ? item.year : '';
+        let imdbId = await tmdbFindImdbId(tmdbKey, item.title, year, primary);
+        if (!imdbId) {
+          imdbId = await tmdbFindImdbId(
+            tmdbKey,
+            item.title,
+            year,
+            primary === 'movie' ? 'tv' : 'movie'
+          );
+        }
+        if (!imdbId) return;
+        const score = await omdbFetchRating(omdbKey, imdbId);
+        if (score) item.imdb_score = score;
+      })
+    );
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const category = searchParams.get('category') || '';
@@ -368,6 +512,13 @@ export async function GET(request: Request) {
     (config.SiteConfig?.ImageProxy || '').trim();
   if (doubanProxy) {
     await fillDoubanScores(finalResults, category, doubanProxy);
+  }
+
+  // IMDb 评分回填：两个 key 都配了才启用（Cloudflare 机密变量，服务端读取）
+  const tmdbKey = (process.env.TMDB_API_KEY || '').trim();
+  const omdbKey = (process.env.OMDB_API_KEY || '').trim();
+  if (tmdbKey && omdbKey) {
+    await fillImdbScores(finalResults, category, tmdbKey, omdbKey);
   }
 
   return NextResponse.json(
