@@ -13,6 +13,7 @@ import {
   getAllPlayRecords,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { enrichScores } from '@/lib/scores.client';
 import { SearchResult } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
@@ -153,21 +154,25 @@ function HomeClient() {
 
       if (moviesRes.status === 'fulfilled') {
         setHotMovies(moviesRes.value);
+        enrichScores(moviesRes.value, 'movie', setHotMovies);
         successCount++;
       }
 
       if (tvRes.status === 'fulfilled') {
         setHotTvShows(tvRes.value);
+        enrichScores(tvRes.value, 'tv', setHotTvShows);
         successCount++;
       }
 
       if (varietyRes.status === 'fulfilled') {
         setHotVarietyShows(varietyRes.value);
+        enrichScores(varietyRes.value, 'variety', setHotVarietyShows);
         successCount++;
       }
 
       if (animeRes.status === 'fulfilled') {
         setHotAnime(animeRes.value);
+        enrichScores(animeRes.value, 'anime', setHotAnime);
         successCount++;
       }
 

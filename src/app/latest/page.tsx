@@ -4,6 +4,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
+import { enrichScores } from '@/lib/scores.client';
 import { SearchResult } from '@/lib/types';
 import { normalizeTitleForMatch } from '@/lib/utils';
 
@@ -81,8 +82,11 @@ function LatestPageClient() {
     fetchPage(1)
       .then((results) => {
         if (cancelled) return;
-        setItems(takeFresh(results));
+        const fresh = takeFresh(results);
+        setItems(fresh);
         setHasMore(results.length >= PAGE_LIMIT);
+        // 评分异步补（豆瓣/IMDb），不阻塞卡片渲染
+        enrichScores(fresh, tab.category, setItems);
       })
       .catch(() => {
         if (!cancelled) setError('获取最新更新数据失败，请稍后重试');
@@ -115,6 +119,8 @@ function LatestPageClient() {
           (b.update_time || '').localeCompare(a.update_time || '')
         )
       );
+      // 新一批的评分同样异步补
+      enrichScores(fresh, tab.category, setItems);
       // 整页都是已见过的重复条目时同样视为到底，避免无限空转
       setHasMore(results.length >= PAGE_LIMIT && fresh.length > 0);
     } catch {
