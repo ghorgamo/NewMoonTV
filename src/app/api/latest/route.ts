@@ -349,11 +349,31 @@ function titleLooseMatch(candidate: string, target: string): boolean {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
+// 临时诊断（?debug=1 时回传每条的回填步骤，定位后删除）
+interface ImdbDiagStep {
+  kind: string;
+  year: string;
+  query: string;
+  fetchOk: boolean;
+  count: number;
+  names: string[];
+  matched?: string;
+  imdbId?: string;
+}
+interface ImdbDiagItem {
+  title: string;
+  year: string;
+  steps: ImdbDiagStep[];
+  imdbId?: string;
+  score?: string;
+}
+
 async function tmdbSearchOnce(
   apiKey: string,
   title: string,
   year: string,
-  kind: 'movie' | 'tv'
+  kind: 'movie' | 'tv',
+  steps?: ImdbDiagStep[]
 ): Promise<{ imdbId: string | null; answered: boolean }> {
   let answered = false;
   const queries = Array.from(
@@ -369,14 +389,28 @@ async function tmdbSearchOnce(
     const data = await fetchJsonTimeout(
       `https://api.themoviedb.org/3/search/${kind}?${params.toString()}`
     );
+    const step: ImdbDiagStep = {
+      kind,
+      year,
+      query: q,
+      fetchOk: data !== null,
+      count: -1,
+      names: [],
+    };
+    if (steps) steps.push(step);
     if (data === null) continue; // 网络/超时失败，不算「查过」
     answered = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results: any[] = Array.isArray(data?.results) ? data.results : [];
+    step.count = results.length;
+    step.names = results
+      .slice(0, 3)
+      .map((r) => (kind === 'movie' ? r.title || r.original_title : r.name || r.original_name));
     for (const r of results.slice(0, 5)) {
       const cand =
         kind === 'movie' ? r.title || r.original_title : r.name || r.original_name;
       if (!cand || !titleLooseMatch(cand, title)) continue;
+      step.matched = cand;
       // 搜索结果不带 imdb_id：电影取详情、剧集取 external_ids
       const detail =
         kind === 'movie'
@@ -388,6 +422,7 @@ async function tmdbSearchOnce(
             );
       const idVal = detail?.imdb_id;
       if (typeof idVal === 'string' && idVal.startsWith('tt')) {
+        step.imdbId = idVal;
         return { imdbId: idVal, answered };
       }
     }
@@ -399,7 +434,8 @@ async function tmdbFindImdbId(
   apiKey: string,
   title: string,
   year: string,
-  kind: 'movie' | 'tv'
+  kind: 'movie' | 'tv',
+  steps?: ImdbDiagStep[]
 ): Promise<string | null> {
   const cacheKey = `${kind}:${normalizeTitleForMatch(
     baseTitleForSearch(title)
@@ -409,9 +445,9 @@ async function tmdbFindImdbId(
     return hit.id;
   }
   // 先带年份查（消歧）；查不到再放宽到无年份——源站年份常与 TMDB 首播年对不上
-  let res = await tmdbSearchOnce(apiKey, title, year, kind);
+  let res = await tmdbSearchOnce(apiKey, title, year, kind, steps);
   if (!res.imdbId && year) {
-    res = await tmdbSearchOnce(apiKey, title, '', kind);
+    res = await tmdbSearchOnce(apiKey, title, '', kind, steps);
   }
   // 只有 TMDB 真的应答过才缓存结果，纯失败不落缓存
   if (res.imdbId || res.answered) {
@@ -443,7 +479,8 @@ async function fillImdbScores(
   results: SearchResult[],
   category: string,
   tmdbKey: string,
-  omdbKey: string
+  omdbKey: string,
+  diag?: ImdbDiagItem[]
 ): Promise<void> {
   const primary: 'movie' | 'tv' = category === 'movie' ? 'movie' : 'tv';
   const BATCH = 4;
@@ -451,17 +488,32 @@ async function fillImdbScores(
     await Promise.allSettled(
       results.slice(i, i + BATCH).map(async (item) => {
         const year = item.year && item.year !== 'unknown' ? item.year : '';
-        let imdbId = await tmdbFindImdbId(tmdbKey, item.title, year, primary);
+        const entry: ImdbDiagItem | undefined = diag
+          ? { title: item.title, year, steps: [] }
+          : undefined;
+        let imdbId = await tmdbFindImdbId(
+          tmdbKey,
+          item.title,
+          year,
+          primary,
+          entry?.steps
+        );
         if (!imdbId) {
           imdbId = await tmdbFindImdbId(
             tmdbKey,
             item.title,
             year,
-            primary === 'movie' ? 'tv' : 'movie'
+            primary === 'movie' ? 'tv' : 'movie',
+            entry?.steps
           );
+        }
+        if (entry) {
+          if (imdbId) entry.imdbId = imdbId;
+          diag!.push(entry);
         }
         if (!imdbId) return;
         const score = await omdbFetchRating(omdbKey, imdbId);
+        if (entry && score) entry.score = score;
         if (score) item.imdb_score = score;
       })
     );
@@ -485,6 +537,8 @@ export async function GET(request: Request) {
   const page = Math.min(Math.max(Number.isNaN(pageParam) ? 1 : pageParam, 1), 5);
   // genre：类型筛选（all/guochan/oumei/riben/hanguo/dongman/jilupian），不传即全部
   const genre = searchParams.get('genre') || 'all';
+  // debug=1：回传 IMDb 回填的逐步诊断（临时排障用）
+  const debug = searchParams.get('debug') === '1';
 
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
@@ -539,19 +593,32 @@ export async function GET(request: Request) {
   // IMDb 评分回填：两个 key 都配了才启用（Cloudflare 机密变量，服务端读取）
   const tmdbKey = (process.env.TMDB_API_KEY || '').trim();
   const omdbKey = (process.env.OMDB_API_KEY || '').trim();
+  const imdbDiagItems: ImdbDiagItem[] | undefined = debug ? [] : undefined;
   if (tmdbKey && omdbKey) {
-    await fillImdbScores(finalResults, category, tmdbKey, omdbKey);
+    await fillImdbScores(finalResults, category, tmdbKey, omdbKey, imdbDiagItems);
   }
 
   return NextResponse.json(
-    { results: finalResults },
     {
-      headers: {
-        // 更新栏目要新鲜：5 分钟短缓存
-        'Cache-Control': 'public, max-age=300, s-maxage=300',
-        'CDN-Cache-Control': 'public, s-maxage=300',
-        'Vercel-CDN-Cache-Control': 'public, s-maxage=300',
-      },
+      results: finalResults,
+      ...(debug
+        ? {
+            _imdbDiag: {
+              env: { tmdb: tmdbKey.length > 0, omdb: omdbKey.length > 0 },
+              items: imdbDiagItems ?? [],
+            },
+          }
+        : {}),
+    },
+    {
+      headers: debug
+        ? { 'Cache-Control': 'no-store' }
+        : {
+            // 更新栏目要新鲜：5 分钟短缓存
+            'Cache-Control': 'public, max-age=300, s-maxage=300',
+            'CDN-Cache-Control': 'public, s-maxage=300',
+            'Vercel-CDN-Cache-Control': 'public, s-maxage=300',
+          },
     }
   );
 }
