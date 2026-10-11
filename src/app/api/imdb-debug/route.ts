@@ -70,6 +70,28 @@ export async function GET() {
         imdb_id: ext.json?.imdb_id ?? null,
       };
     }
+
+    // 复刻生产代码的查法：带完整标题（含标点）+ 年份过滤，看年份是否把结果滤光
+    const sim = async (year: string) => {
+      const p = new URLSearchParams({
+        api_key: tmdbKey,
+        query: '丰臣兄弟！',
+        language: 'zh-CN',
+      });
+      if (year) p.set('first_air_date_year', year);
+      const s = await probe(
+        `https://api.themoviedb.org/3/search/tv?${p.toString()}`
+      );
+      return {
+        status: s.status,
+        count: Array.isArray(s.json?.results) ? s.json.results.length : -1,
+      };
+    };
+    out.prodSim = {
+      withYear2026: await sim('2026'),
+      withYear2025: await sim('2025'),
+      noYear: await sim(''),
+    };
   }
 
   if (omdbKey) {

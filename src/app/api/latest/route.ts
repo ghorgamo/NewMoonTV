@@ -324,7 +324,9 @@ async function fetchJsonTimeout(url: string, ms = 5000): Promise<any | null> {
   }
 }
 
-const imdbIdCache = new Map<string, string | null>();
+const imdbIdCache = new Map<string, { id: string | null; ts: number }>();
+// 查无此片的负缓存只留 10 分钟：避免某次超时/限流把标题永久毒化
+const IMDB_ID_NEG_TTL_MS = 10 * 60 * 1000;
 const imdbRatingCache = new Map<
   string,
   { score: string | null; ts: number }
@@ -347,22 +349,17 @@ function titleLooseMatch(candidate: string, target: string): boolean {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
-async function tmdbFindImdbId(
+async function tmdbSearchOnce(
   apiKey: string,
   title: string,
   year: string,
   kind: 'movie' | 'tv'
-): Promise<string | null> {
-  const cacheKey = `${kind}:${normalizeTitleForMatch(
-    baseTitleForSearch(title)
-  )}:${year}`;
-  if (imdbIdCache.has(cacheKey)) return imdbIdCache.get(cacheKey) ?? null;
-
-  let imdbId: string | null = null;
+): Promise<{ imdbId: string | null; answered: boolean }> {
+  let answered = false;
   const queries = Array.from(
     new Set([baseTitleForSearch(title), title].filter(Boolean))
   );
-  outer: for (const q of queries) {
+  for (const q of queries) {
     const params = new URLSearchParams({
       api_key: apiKey,
       query: q,
@@ -372,6 +369,8 @@ async function tmdbFindImdbId(
     const data = await fetchJsonTimeout(
       `https://api.themoviedb.org/3/search/${kind}?${params.toString()}`
     );
+    if (data === null) continue; // 网络/超时失败，不算「查过」
+    answered = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results: any[] = Array.isArray(data?.results) ? data.results : [];
     for (const r of results.slice(0, 5)) {
@@ -389,13 +388,36 @@ async function tmdbFindImdbId(
             );
       const idVal = detail?.imdb_id;
       if (typeof idVal === 'string' && idVal.startsWith('tt')) {
-        imdbId = idVal;
-        break outer;
+        return { imdbId: idVal, answered };
       }
     }
   }
-  imdbIdCache.set(cacheKey, imdbId);
-  return imdbId;
+  return { imdbId: null, answered };
+}
+
+async function tmdbFindImdbId(
+  apiKey: string,
+  title: string,
+  year: string,
+  kind: 'movie' | 'tv'
+): Promise<string | null> {
+  const cacheKey = `${kind}:${normalizeTitleForMatch(
+    baseTitleForSearch(title)
+  )}:${year}`;
+  const hit = imdbIdCache.get(cacheKey);
+  if (hit && (hit.id !== null || Date.now() - hit.ts < IMDB_ID_NEG_TTL_MS)) {
+    return hit.id;
+  }
+  // 先带年份查（消歧）；查不到再放宽到无年份——源站年份常与 TMDB 首播年对不上
+  let res = await tmdbSearchOnce(apiKey, title, year, kind);
+  if (!res.imdbId && year) {
+    res = await tmdbSearchOnce(apiKey, title, '', kind);
+  }
+  // 只有 TMDB 真的应答过才缓存结果，纯失败不落缓存
+  if (res.imdbId || res.answered) {
+    imdbIdCache.set(cacheKey, { id: res.imdbId, ts: Date.now() });
+  }
+  return res.imdbId;
 }
 
 async function omdbFetchRating(
