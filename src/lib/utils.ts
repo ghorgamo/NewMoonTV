@@ -385,3 +385,52 @@ export function buildUpdateBadge(title: string, remarks?: string): string {
   }
   return parts.join(' · ');
 }
+
+/** 从标题解析季数（阿拉伯/汉字数字均可），解析不出返回 0 */
+export function parseSeasonNumber(title: string): number {
+  const m = title.match(/第\s*([0-9]+|[零一二三四五六七八九十]+)\s*季/);
+  if (!m) return 0;
+  const raw = m[1];
+  if (/^\d+$/.test(raw)) return parseInt(raw, 10);
+  return parseChineseNumber(raw) || 0;
+}
+
+/**
+ * 解析「更新到第几集」：优先用已抓到的集数（episodes 长度），
+ * 为 0 时回退解析 remarks（如「更新至第24集」），都解析不出返回 0。
+ */
+export function parseLatestEpisodeNumber(
+  remarks?: string,
+  episodesCount = 0
+): number {
+  if (episodesCount > 0) return episodesCount;
+  const r = (remarks || '').trim();
+  const m =
+    r.match(/更新至\s*第?\s*([0-9]+)\s*集/) || r.match(/第\s*([0-9]+)\s*集/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+export interface LatestSortable {
+  title: string;
+  remarks?: string;
+  episodes?: string[];
+  update_time?: string;
+}
+
+/**
+ * 「最新更新」排序：更新时间倒序优先；时间相同（源站批量同步时常见整批同一时间戳）
+ * 再按季数大者、集数多者靠前，保证最新季、最新集排在前面。
+ */
+export function compareByLatestUpdate(
+  a: LatestSortable,
+  b: LatestSortable
+): number {
+  const byTime = (b.update_time || '').localeCompare(a.update_time || '');
+  if (byTime !== 0) return byTime;
+  const bySeason = parseSeasonNumber(b.title) - parseSeasonNumber(a.title);
+  if (bySeason !== 0) return bySeason;
+  return (
+    parseLatestEpisodeNumber(b.remarks, b.episodes?.length) -
+    parseLatestEpisodeNumber(a.remarks, a.episodes?.length)
+  );
+}

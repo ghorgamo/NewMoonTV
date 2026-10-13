@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { enrichScores } from '@/lib/scores.client';
 import { SearchResult } from '@/lib/types';
-import { normalizeTitleForMatch } from '@/lib/utils';
+import { compareByLatestUpdate, normalizeTitleForMatch } from '@/lib/utils';
 
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -113,12 +113,8 @@ function LatestPageClient() {
       const results = await fetchPage(next);
       pageRef.current = next;
       const fresh = takeFresh(results);
-      // 合并后整体仍按更新时间倒序
-      setItems((prev) =>
-        [...prev, ...fresh].sort((a, b) =>
-          (b.update_time || '').localeCompare(a.update_time || '')
-        )
-      );
+      // 合并后整体仍按「更新时间→季数→集数」倒序，与接口排序口径一致
+      setItems((prev) => [...prev, ...fresh].sort(compareByLatestUpdate));
       // 新一批的评分同样异步补
       enrichScores(fresh, tab.category, setItems);
       // 整页都是已见过的重复条目时同样视为到底，避免无限空转

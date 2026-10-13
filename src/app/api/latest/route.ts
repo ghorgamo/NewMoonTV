@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 import { SearchResult } from '@/lib/types';
-import { cleanHtmlTags, normalizeTitleForMatch } from '@/lib/utils';
+import {
+  cleanHtmlTags,
+  compareByLatestUpdate,
+  normalizeTitleForMatch,
+} from '@/lib/utils';
 
 export const runtime = 'edge';
 
@@ -289,16 +293,17 @@ export async function GET(request: Request) {
     for (const item of batch.value) {
       const key = normalizeTitleForMatch(item.title);
       const prev = byTitle.get(key);
-      if (!prev || (item.update_time || '') > (prev.update_time || '')) {
+      // 同一作品保留更「新」的一条：更新时间较新者胜出；
+      // 时间相同则保留季数/集数更大的一条（与最终排序口径一致）
+      if (!prev || compareByLatestUpdate(item, prev) < 0) {
         byTitle.set(key, item);
       }
     }
   }
 
-  // 统一按更新时间倒序（vod_time 为 'YYYY-MM-DD HH:mm:ss'，字符串序即时间序）
-  const merged = Array.from(byTitle.values()).sort((a, b) =>
-    (b.update_time || '').localeCompare(a.update_time || '')
-  );
+  // 统一排序：更新时间倒序（vod_time 为 'YYYY-MM-DD HH:mm:ss'，字符串序即时间序），
+  // 时间相同再按季数/集数倒序（见 compareByLatestUpdate）
+  const merged = Array.from(byTitle.values()).sort(compareByLatestUpdate);
 
   const finalResults = merged.slice(0, limit);
 
