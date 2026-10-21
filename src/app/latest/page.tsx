@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
 import { enrichScores } from '@/lib/scores.client';
 import { SearchResult } from '@/lib/types';
-import { compareByLatestUpdate, normalizeTitleForMatch } from '@/lib/utils';
+import { normalizeTitleForMatch } from '@/lib/utils';
 
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -31,6 +31,21 @@ const GENRES = [
 ] as const;
 
 const PAGE_LIMIT = 24;
+
+// 瀑布流列数随视口宽度变化，断点与原 columns 类保持一致（手机 3 列、大屏最多 7 列）
+function useColumnCount() {
+  const [count, setCount] = useState(3);
+  useEffect(() => {
+    const calc = () => {
+      const w = window.innerWidth;
+      setCount(w >= 1536 ? 7 : w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 640 ? 4 : 3);
+    };
+    calc();
+    window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, []);
+  return count;
+}
 
 function LatestPageClient() {
   const router = useRouter();
@@ -113,8 +128,8 @@ function LatestPageClient() {
       const results = await fetchPage(next);
       pageRef.current = next;
       const fresh = takeFresh(results);
-      // 合并后整体仍按「更新时间→季数→集数」倒序，与接口排序口径一致
-      setItems((prev) => [...prev, ...fresh].sort(compareByLatestUpdate));
+      // 只在末尾追加，绝不整体重排：已展示的卡片位置保持不动，新内容不插到前面
+      setItems((prev) => [...prev, ...fresh]);
       // 新一批的评分同样异步补
       enrichScores(fresh, tab.category, setItems);
       // 整页都是已见过的重复条目时同样视为到底，避免无限空转
@@ -125,6 +140,63 @@ function LatestPageClient() {
       setLoadingMore(false);
     }
   }, [loadingMore, hasMore, loading, fetchPage, takeFresh]);
+
+  // 追加式瀑布流分列：columns 存的是 items 的下标。
+  // 已排入的卡片永不换列、不移动；新一批只按当前各列高度往最矮的列底部追加。
+  // 仅在列表重置（切栏目/筛选）或列数变化（跨断点）时才整体重排。
+  const colCount = useColumnCount();
+  const [columns, setColumns] = useState<number[][]>([]);
+  const placedRef = useRef<{ count: number; heights: number[] }>({
+    count: 0,
+    heights: [],
+  });
+  const gridRef = useRef<HTMLDivElement>(null);
+  const colElsRef = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    if (items.length === 0) {
+      placedRef.current = { count: 0, heights: [] };
+      setColumns([]);
+      return;
+    }
+    const placed = placedRef.current;
+    const needRebuild =
+      placed.count > items.length || placed.heights.length !== colCount;
+    if (needRebuild) {
+      placed.count = 0;
+      placed.heights = new Array(colCount).fill(0);
+    }
+    if (placed.count === items.length && !needRebuild) return;
+    // 用上一批渲染出的真实列高做校准，保证追加时各列高度判断准确
+    if (!needRebuild) {
+      const measured = colElsRef.current.map((el) => el?.offsetHeight || 0);
+      if (measured.some((h) => h > 0)) {
+        placed.heights = placed.heights.map((h, i) => measured[i] || h);
+      }
+    }
+    const gridW = gridRef.current?.offsetWidth || 1200;
+    const gapX = window.innerWidth >= 640 ? 32 : 8;
+    const colW = (gridW - gapX * (colCount - 1)) / colCount;
+    // 单卡估算高度：海报 2:3 + 标题区；下一批追加前会被真实高度校准
+    const estCardH = colW * 1.5 + 84;
+    setColumns((prev) => {
+      const cols: number[][] = needRebuild
+        ? Array.from({ length: colCount }, () => [])
+        : prev.map((c) => [...c]);
+      const heights = [...placed.heights];
+      for (let i = placed.count; i < items.length; i++) {
+        let target = 0;
+        for (let c = 1; c < colCount; c++) {
+          if (heights[c] < heights[target]) target = c;
+        }
+        cols[target].push(i);
+        heights[target] += estCardH;
+      }
+      placed.count = items.length;
+      placed.heights = heights;
+      return cols;
+    });
+  }, [items, colCount]);
 
   // 无限滚动：哨兵进入视口（提前 600px）自动加载下一页，取代“加载更多”按钮
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -196,11 +268,18 @@ function LatestPageClient() {
               {error}
             </div>
           ) : loading ? (
-            <div className='columns-3 gap-2 px-0 sm:px-2 sm:columns-4 sm:gap-8 lg:columns-5 xl:columns-6 2xl:columns-7'>
-              {Array.from({ length: 12 }).map((_, index) => (
-                <div key={index} className='mb-12 w-full break-inside-avoid sm:mb-20'>
-                  <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'></div>
-                  <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
+            <div className='flex items-start gap-2 px-0 sm:gap-8 sm:px-2'>
+              {Array.from({ length: colCount }).map((_, ci) => (
+                <div
+                  key={ci}
+                  className='flex min-w-0 flex-1 flex-col gap-12 sm:gap-20'
+                >
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <div key={index} className='w-full'>
+                      <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'></div>
+                      <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -210,26 +289,40 @@ function LatestPageClient() {
             </div>
           ) : (
             <>
-              <div className='columns-3 gap-2 px-0 sm:px-2 sm:columns-4 sm:gap-8 lg:columns-5 xl:columns-6 2xl:columns-7'>
-                {items.map((item) => (
+              <div
+                ref={gridRef}
+                className='flex items-start gap-2 px-0 sm:gap-8 sm:px-2'
+              >
+                {columns.map((col, ci) => (
                   <div
-                    key={`${item.source}-${item.id}`}
-                    className='mb-12 w-full break-inside-avoid sm:mb-20'
+                    key={ci}
+                    ref={(el) => {
+                      colElsRef.current[ci] = el;
+                    }}
+                    className='flex min-w-0 flex-1 flex-col gap-12 sm:gap-20'
                   >
-                    <VideoCard
-                      from='search'
-                      id={item.id}
-                      source={item.source}
-                      title={item.title}
-                      poster={item.poster}
-                      episodes={item.episodes.length}
-                      source_name={item.source_name}
-                      year={item.year}
-                      type={tab.cardType}
-                      remarks={item.remarks}
-                      doubanScore={item.douban_score}
-                      imdbScore={item.imdb_score}
-                    />
+                    {col.map((idx) => {
+                      const item = items[idx];
+                      if (!item) return null;
+                      return (
+                        <div key={`${item.source}-${item.id}`} className='w-full'>
+                          <VideoCard
+                            from='search'
+                            id={item.id}
+                            source={item.source}
+                            title={item.title}
+                            poster={item.poster}
+                            episodes={item.episodes.length}
+                            source_name={item.source_name}
+                            year={item.year}
+                            type={tab.cardType}
+                            remarks={item.remarks}
+                            doubanScore={item.douban_score}
+                            imdbScore={item.imdb_score}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
