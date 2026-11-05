@@ -386,7 +386,9 @@ function PlayPageClient() {
       // 根据搜索词获取全部源信息
       // 聚合口径与搜索页一致：归一化标题（中文数字转阿拉伯、去空格、忽略大小写）
       // 相等即同一作品，不再因「第六季」与「第6季」写法不同而丢源；
-      // 年份为 unknown（源站缺失）时不作过滤，否则会把全部资源滤掉只剩点开的那一个。
+      // 点开卡片年份为 unknown（源站缺失）时不作过滤；卡片年份已知时，
+      // 年份未知的结果也放行，只滤掉年份明确不同的，避免同名不同年作品混入，
+      // 否则年份缺失的源会被整批丢掉、只剩点开的那一个。
       const normalizedTitle = normalizeTitleForMatch(
         videoTitleRef.current
       ).toLowerCase();
@@ -400,7 +402,11 @@ function PlayPageClient() {
           (result: SearchResult) =>
             normalizeTitleForMatch(result.title).toLowerCase() ===
               normalizedTitle &&
-            (yearFilter ? result.year.toLowerCase() === yearFilter : true) &&
+            (yearFilter
+              ? !result.year ||
+                result.year.toLowerCase() === 'unknown' ||
+                result.year.toLowerCase() === yearFilter
+              : true) &&
             (searchType
               ? (searchType === 'tv' && result.episodes.length > 1) ||
                 (searchType === 'movie' && result.episodes.length === 1)
