@@ -320,6 +320,7 @@ function LatestPageClient() {
                             remarks={item.remarks}
                             doubanScore={item.douban_score}
                             imdbScore={item.imdb_score}
+                            prefer
                           />
                         </div>
                       );

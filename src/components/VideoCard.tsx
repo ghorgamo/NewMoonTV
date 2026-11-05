@@ -39,6 +39,9 @@ interface VideoCardProps {
   doubanScore?: string;
   // IMDb 评分（如「8.7」），用于左上角 IMDb 金色徽标
   imdbScore?: string;
+  // 聚合播放：点开后默认优选（分辨率与速度综合评分最高者），用于最新更新等聚合封面；
+  // 收藏/播放记录等明确指向单一源的卡片不传此项，保持直达该源
+  prefer?: boolean;
   items?: SearchResult[];
   type?: string;
 }
@@ -61,6 +64,7 @@ export default function VideoCard({
   remarks,
   doubanScore,
   imdbScore,
+  prefer = false,
   items,
   type = '',
 }: VideoCardProps) {
@@ -216,7 +220,7 @@ export default function VideoCard({
         `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
         )}${actualYear ? `&year=${actualYear}` : ''}${
-          isAggregate ? '&prefer=true' : ''
+          isAggregate || prefer ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
@@ -232,6 +236,7 @@ export default function VideoCard({
     isAggregate,
     actualQuery,
     actualSearchType,
+    prefer,
   ]);
 
   const config = useMemo(() => {

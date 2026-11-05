@@ -264,6 +264,30 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     }
   }, [displayPage, pageCount]);
 
+  // 换源列表按连接速度降序：已测出速度的按 KB/s 从高到低，未测出/失败的保持原顺序沉底；
+  // 测速结果陆续到达时重新排序。用副本排序，不改动上层传来的 availableSources。
+  const sortedSources = useMemo(() => {
+    const speedOf = (source: SearchResult): number => {
+      const info = videoInfoMap.get(`${source.source}-${source.id}`);
+      if (!info || info.hasError) return -1;
+      const match = info.loadSpeed.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
+      if (!match) return -1;
+      const value = parseFloat(match[1]);
+      return match[2] === 'MB/s' ? value * 1024 : value;
+    };
+    return availableSources
+      .map((source, index) => ({ source, index }))
+      .sort((a, b) => {
+        const aSpeed = speedOf(a.source);
+        const bSpeed = speedOf(b.source);
+        if (aSpeed >= 0 && bSpeed >= 0) return bSpeed - aSpeed;
+        if (aSpeed >= 0) return -1;
+        if (bSpeed >= 0) return 1;
+        return a.index - b.index;
+      })
+      .map(({ source }) => source);
+  }, [availableSources, videoInfoMap]);
+
   // 处理换源tab点击，只在点击时才搜索
   const handleSourceTabClick = () => {
     setActiveTab('sources');
@@ -459,19 +483,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             !sourceSearchError &&
             availableSources.length > 0 && (
               <div className='flex-1 overflow-y-auto space-y-2 pb-20'>
-                {availableSources
-                  .sort((a, b) => {
-                    const aIsCurrent =
-                      a.source?.toString() === currentSource?.toString() &&
-                      a.id?.toString() === currentId?.toString();
-                    const bIsCurrent =
-                      b.source?.toString() === currentSource?.toString() &&
-                      b.id?.toString() === currentId?.toString();
-                    if (aIsCurrent && !bIsCurrent) return -1;
-                    if (!aIsCurrent && bIsCurrent) return 1;
-                    return 0;
-                  })
-                  .map((source, index) => {
+                {sortedSources.map((source, index) => {
                     const isCurrentSource =
                       source.source?.toString() === currentSource?.toString() &&
                       source.id?.toString() === currentId?.toString();

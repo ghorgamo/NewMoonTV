@@ -20,7 +20,11 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { getBuiltinImageProxyUrl, processImageUrl } from '@/lib/utils';
+import {
+  getBuiltinImageProxyUrl,
+  normalizeTitleForMatch,
+  processImageUrl,
+} from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -388,14 +392,23 @@ function PlayPageClient() {
         }
         const data = await response.json();
 
-        // 处理搜索结果，根据规则过滤
+        // 处理搜索结果，根据规则过滤。
+        // 聚合口径与搜索页一致：归一化标题（中文数字转阿拉伯、去空格、忽略大小写）
+        // 相等即同一作品，不再因「第六季」与「第6季」写法不同而丢源；
+        // 年份为 unknown（源站缺失）时不作过滤，否则会把全部资源滤掉只剩点开的那一个。
+        const normalizedTitle = normalizeTitleForMatch(
+          videoTitleRef.current
+        ).toLowerCase();
+        const yearFilter =
+          videoYearRef.current &&
+          videoYearRef.current.toLowerCase() !== 'unknown'
+            ? videoYearRef.current.toLowerCase()
+            : '';
         const results = data.results.filter(
           (result: SearchResult) =>
-            result.title.replaceAll(' ', '').toLowerCase() ===
-              videoTitleRef.current.replaceAll(' ', '').toLowerCase() &&
-            (videoYearRef.current
-              ? result.year.toLowerCase() === videoYearRef.current.toLowerCase()
-              : true) &&
+            normalizeTitleForMatch(result.title).toLowerCase() ===
+              normalizedTitle &&
+            (yearFilter ? result.year.toLowerCase() === yearFilter : true) &&
             (searchType
               ? (searchType === 'tv' && result.episodes.length > 1) ||
                 (searchType === 'movie' && result.episodes.length === 1)
