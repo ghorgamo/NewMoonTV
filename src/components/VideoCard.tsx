@@ -287,10 +287,11 @@ export default function VideoCard({
     [actualTitle, remarks]
   );
 
-  // 封面回退链（与 LibreTV SmartImage 一致）：直连（或外置代理）失败时改走本站内置代理
-  const [useBuiltinProxy, setUseBuiltinProxy] = useState(false);
+  // 封面回退链（与 LibreTV SmartImage 一致）：先走本站内置代理
+  //（与本站同域名，中国 IP 可达），代理失败再回退直连（或外置代理）
+  const [useDirect, setUseDirect] = useState(false);
   useEffect(() => {
-    setUseBuiltinProxy(false);
+    setUseDirect(false);
   }, [actualPoster]);
 
   return (
@@ -305,9 +306,9 @@ export default function VideoCard({
         {/* 图片 */}
         <Image
           src={
-            useBuiltinProxy
-              ? getBuiltinImageProxyUrl(actualPoster)
-              : processImageUrl(actualPoster)
+            useDirect
+              ? processImageUrl(actualPoster)
+              : getBuiltinImageProxyUrl(actualPoster)
           }
           alt={actualTitle}
           fill
@@ -317,7 +318,7 @@ export default function VideoCard({
           loading='lazy'
           onLoadingComplete={() => setIsLoading(true)}
           onError={() => {
-            if (!useBuiltinProxy) setUseBuiltinProxy(true);
+            if (!useDirect) setUseDirect(true);
           }}
         />
 

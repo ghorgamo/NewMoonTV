@@ -98,10 +98,10 @@ function PlayPageClient() {
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
   const [videoCover, setVideoCover] = useState('');
-  // 封面回退链（与 LibreTV SmartImage 一致）：直连失败时改走本站内置代理
-  const [coverUseBuiltinProxy, setCoverUseBuiltinProxy] = useState(false);
+  // 封面回退链（与 LibreTV SmartImage 一致）：先走本站内置代理，代理失败再回退直连
+  const [coverUseDirect, setCoverUseDirect] = useState(false);
   useEffect(() => {
-    setCoverUseBuiltinProxy(false);
+    setCoverUseDirect(false);
   }, [videoCover]);
   // 当前源和ID
   const [currentSource, setCurrentSource] = useState(
@@ -1776,14 +1776,14 @@ function PlayPageClient() {
                 {videoCover ? (
                   <img
                     src={
-                      coverUseBuiltinProxy
-                        ? getBuiltinImageProxyUrl(videoCover)
-                        : processImageUrl(videoCover)
+                      coverUseDirect
+                        ? processImageUrl(videoCover)
+                        : getBuiltinImageProxyUrl(videoCover)
                     }
                     alt={videoTitle}
                     className='w-full h-full object-cover'
                     onError={() => {
-                      if (!coverUseBuiltinProxy) setCoverUseBuiltinProxy(true);
+                      if (!coverUseDirect) setCoverUseDirect(true);
                     }}
                   />
                 ) : (

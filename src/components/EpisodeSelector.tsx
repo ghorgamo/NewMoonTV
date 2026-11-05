@@ -504,17 +504,15 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                         <div className='flex-shrink-0 w-12 h-20 bg-gray-300 dark:bg-gray-600 rounded overflow-hidden'>
                           {source.episodes && source.episodes.length > 0 && (
                             <img
-                              src={processImageUrl(source.poster)}
+                              src={getBuiltinImageProxyUrl(source.poster)}
                               alt={source.title}
                               className='w-full h-full object-cover'
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
-                                // 先回退到本站内置代理（与 LibreTV 直连→代理降级链一致），代理也失败才隐藏
-                                if (!target.dataset.proxyTried) {
-                                  target.dataset.proxyTried = '1';
-                                  target.src = getBuiltinImageProxyUrl(
-                                    source.poster
-                                  );
+                                // 先走本站内置代理（与本站同域名，中国 IP 可达），代理失败再回退直连/外置代理，都失败才隐藏
+                                if (!target.dataset.directTried) {
+                                  target.dataset.directTried = '1';
+                                  target.src = processImageUrl(source.poster);
                                 } else {
                                   target.style.display = 'none';
                                 }
