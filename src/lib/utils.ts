@@ -39,6 +39,14 @@ export function processImageUrl(originalUrl: string): string {
 }
 
 /**
+ * 内置同源图片代理地址（本站 /api/image-proxy），与 LibreTV 的直连→内置代理回退链一致：
+ * 封面直连（或外置代理）失败时改走本站服务器中转，浏览器只需连通本站域名、无需客户端代理。
+ */
+export function getBuiltinImageProxyUrl(originalUrl: string): string {
+  return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+}
+
+/**
  * 获取豆瓣代理 URL 设置
  */
 export function getDoubanProxyUrl(): string | null {

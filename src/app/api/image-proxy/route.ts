@@ -2,24 +2,28 @@ import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// 允许代理的图片域名白名单（可通过环境变量 IMAGE_PROXY_ALLOWLIST 追加，逗号分隔）
-// 默认仅允许豆瓣图片域；子域名通过后缀匹配放行
-const DEFAULT_ALLOWLIST = ['doubanio.com'];
-
-function getAllowlist(): string[] {
+// 图片代理域名策略：默认放行所有域名（与 LibreTV 登录态 /api/proxy 一致，
+// 否则资源站封面图床无法一一列入白名单）；SSRF 防护与图片内容类型校验仍在：
+// 拒绝 IP 字面量、无 userinfo、仅 http/https、每跳重定向重新校验、仅透传 image/*。
+// 如设置环境变量 IMAGE_PROXY_ALLOWLIST（逗号分隔），则仅放行其中的域名（含子域名）。
+function getAllowlist(): string[] | null {
   const extra = (process.env.IMAGE_PROXY_ALLOWLIST || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return [...DEFAULT_ALLOWLIST, ...extra];
+  return extra.length > 0 ? extra : null;
 }
 
-function isHostnameAllowed(hostname: string, allowlist: string[]): boolean {
+function isHostnameAllowed(
+  hostname: string,
+  allowlist: string[] | null
+): boolean {
   const host = hostname.toLowerCase();
   // 拒绝 IP 字面量（IPv4 / IPv6），防止指向内网或云元数据服务
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) {
     return false;
   }
+  if (!allowlist) return true;
   return allowlist.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
@@ -47,13 +51,23 @@ async function fetchImage(url: URL): Promise<Response> {
   // 手动处理重定向，每一跳都重新做白名单校验，防止开放重定向绕过
   let current = url;
   for (let hop = 0; hop < 3; hop++) {
+    // 豆瓣图床需要 Referer 伪装（与 LibreTV 一致），其余图床不发 Referer
+    const host = current.hostname.toLowerCase();
+    const isDouban =
+      host === 'douban.com' ||
+      host.endsWith('.douban.com') ||
+      host === 'doubanio.com' ||
+      host.endsWith('.doubanio.com');
+    const headers: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    };
+    if (isDouban) {
+      headers.Referer = 'https://movie.douban.com/';
+    }
     const imageResponse = await fetch(current.toString(), {
       redirect: 'manual',
-      headers: {
-        Referer: 'https://movie.douban.com/',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      },
+      headers,
     });
 
     const location = imageResponse.headers.get('location');
@@ -87,10 +101,7 @@ export async function GET(request: Request) {
 
   const target = validateTargetUrl(imageUrl);
   if (!target) {
-    return NextResponse.json(
-      { error: 'URL not allowed by image proxy allowlist' },
-      { status: 403 }
-    );
+    return NextResponse.json({ error: 'URL not allowed' }, { status: 403 });
   }
 
   try {

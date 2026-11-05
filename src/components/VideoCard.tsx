@@ -14,7 +14,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { buildUpdateBadge, processImageUrl } from '@/lib/utils';
+import { buildUpdateBadge, getBuiltinImageProxyUrl, processImageUrl } from '@/lib/utils';
 
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 
@@ -282,6 +282,12 @@ export default function VideoCard({
     [actualTitle, remarks]
   );
 
+  // 封面回退链（与 LibreTV SmartImage 一致）：直连（或外置代理）失败时改走本站内置代理
+  const [useBuiltinProxy, setUseBuiltinProxy] = useState(false);
+  useEffect(() => {
+    setUseBuiltinProxy(false);
+  }, [actualPoster]);
+
   return (
     <div
       className='group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-[500]'
@@ -293,14 +299,21 @@ export default function VideoCard({
         {!isLoading && <ImagePlaceholder aspectRatio='aspect-[2/3]' />}
         {/* 图片 */}
         <Image
-          src={processImageUrl(actualPoster)}
+          src={
+            useBuiltinProxy
+              ? getBuiltinImageProxyUrl(actualPoster)
+              : processImageUrl(actualPoster)
+          }
           alt={actualTitle}
           fill
-          sizes='(max-width: 640px) 33vw, (max-width: 1280px) 20vw, 180px'
+          sizes='(max-width: 640px) 33vw, (max-width: 1024px) 25vw, (max-width: 1536px) 16vw, 210px'
           className='object-cover'
           referrerPolicy='no-referrer'
           loading='lazy'
           onLoadingComplete={() => setIsLoading(true)}
+          onError={() => {
+            if (!useBuiltinProxy) setUseBuiltinProxy(true);
+          }}
         />
 
         {/* 悬浮遮罩 */}
@@ -387,12 +400,6 @@ export default function VideoCard({
           </div>
         )}
 
-        {/* 最新季/集角标（左下角常驻，资源站栏目传入 remarks 时显示） */}
-        {updateBadge && (
-          <div className='absolute bottom-2 left-2 bg-black/70 text-white text-[11px] font-medium px-1.5 py-0.5 rounded shadow-md'>
-            {updateBadge}
-          </div>
-        )}
       </div>
 
       {/* 进度条 */}
@@ -405,10 +412,10 @@ export default function VideoCard({
         </div>
       )}
 
-      {/* 标题与来源 */}
-      <div className='mt-2 text-center'>
+      {/* 标题与第二行：kubb 式两行说明，第一行标题，第二行左为来源、右为更新状态 */}
+      <div className='mt-2 text-left'>
         <div className='relative'>
-          <span className='block text-sm font-semibold truncate text-gray-900 dark:text-gray-100 transition-colors duration-300 ease-in-out group-hover:text-green-600 dark:group-hover:text-green-400 peer'>
+          <span className='block text-base font-semibold truncate text-gray-900 dark:text-gray-100 transition-colors duration-300 ease-in-out group-hover:text-green-600 dark:group-hover:text-green-400 peer'>
             {actualTitle}
           </span>
           {/* 自定义 tooltip */}
@@ -417,12 +424,23 @@ export default function VideoCard({
             <div className='absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800'></div>
           </div>
         </div>
-        {config.showSourceName && source_name && (
-          <span className='block text-xs text-gray-500 dark:text-gray-400 mt-1'>
-            <span className='inline-block border rounded px-2 py-0.5 border-gray-500/60 dark:border-gray-400/60 transition-all duration-300 ease-in-out group-hover:border-green-500/60 group-hover:text-green-600 dark:group-hover:text-green-400'>
-              {source_name}
-            </span>
-          </span>
+        {((config.showSourceName && source_name) || updateBadge) && (
+          <div className='mt-1 flex items-center justify-between gap-2'>
+            {config.showSourceName && source_name ? (
+              <span className='block shrink-0 text-xs text-gray-500 dark:text-gray-400'>
+                <span className='inline-block border rounded px-2 py-0.5 border-gray-500/60 dark:border-gray-400/60 transition-all duration-300 ease-in-out group-hover:border-green-500/60 group-hover:text-green-600 dark:group-hover:text-green-400'>
+                  {source_name}
+                </span>
+              </span>
+            ) : (
+              <span />
+            )}
+            {updateBadge && (
+              <span className='truncate text-[13px] text-gray-500 dark:text-gray-400'>
+                {updateBadge}
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>

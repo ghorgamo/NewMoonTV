@@ -416,7 +416,7 @@ function DoubanPageClient() {
         {/* 内容展示区域 */}
         <div className='max-w-[95%] mx-auto mt-8 overflow-visible'>
           {/* 内容网格 */}
-          <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+          <div className='justify-start grid grid-cols-3 gap-x-2.5 gap-y-10 px-0 sm:px-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8'>
             {loading || !selectorsReady
               ? // 显示骨架屏
                 skeletonData.map((index) => <DoubanCardSkeleton key={index} />)

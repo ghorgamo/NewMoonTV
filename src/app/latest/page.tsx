@@ -38,7 +38,7 @@ function useColumnCount() {
   useEffect(() => {
     const calc = () => {
       const w = window.innerWidth;
-      setCount(w >= 1536 ? 7 : w >= 1280 ? 6 : w >= 1024 ? 5 : w >= 640 ? 4 : 3);
+      setCount(w >= 1536 ? 8 : w >= 1024 ? 6 : w >= 640 ? 4 : 3);
     };
     calc();
     window.addEventListener('resize', calc);
@@ -175,10 +175,10 @@ function LatestPageClient() {
       }
     }
     const gridW = gridRef.current?.offsetWidth || 1200;
-    const gapX = window.innerWidth >= 640 ? 32 : 8;
+    const gapX = 10;
     const colW = (gridW - gapX * (colCount - 1)) / colCount;
-    // 单卡估算高度：海报 2:3 + 标题区；下一批追加前会被真实高度校准
-    const estCardH = colW * 1.5 + 84;
+    // 单卡估算高度：海报 2:3 + 两行说明区（标题 + 来源/更新状态）；下一批追加前会被真实高度校准
+    const estCardH = colW * 1.5 + 60;
     setColumns((prev) => {
       const cols: number[][] = needRebuild
         ? Array.from({ length: colCount }, () => [])
@@ -268,16 +268,17 @@ function LatestPageClient() {
               {error}
             </div>
           ) : loading ? (
-            <div className='flex items-start gap-2 px-0 sm:gap-8 sm:px-2'>
+            <div className='flex items-start gap-2.5 px-0 sm:px-2'>
               {Array.from({ length: colCount }).map((_, ci) => (
                 <div
                   key={ci}
-                  className='flex min-w-0 flex-1 flex-col gap-12 sm:gap-20'
+                  className='flex min-w-0 flex-1 flex-col gap-10'
                 >
                   {Array.from({ length: 2 }).map((_, index) => (
                     <div key={index} className='w-full'>
                       <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'></div>
                       <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
+                      <div className='mt-1 h-3 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
                     </div>
                   ))}
                 </div>
@@ -291,7 +292,7 @@ function LatestPageClient() {
             <>
               <div
                 ref={gridRef}
-                className='flex items-start gap-2 px-0 sm:gap-8 sm:px-2'
+                className='flex items-start gap-2.5 px-0 sm:px-2'
               >
                 {columns.map((col, ci) => (
                   <div
@@ -299,7 +300,7 @@ function LatestPageClient() {
                     ref={(el) => {
                       colElsRef.current[ci] = el;
                     }}
-                    className='flex min-w-0 flex-1 flex-col gap-12 sm:gap-20'
+                    className='flex min-w-0 flex-1 flex-col gap-10'
                   >
                     {col.map((idx) => {
                       const item = items[idx];

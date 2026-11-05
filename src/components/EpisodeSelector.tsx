@@ -10,7 +10,7 @@ import React, {
 } from 'react';
 
 import { SearchResult } from '@/lib/types';
-import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { getBuiltinImageProxyUrl, getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 // 定义视频信息类型
 interface VideoInfo {
@@ -497,7 +497,15 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               className='w-full h-full object-cover'
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
+                                // 先回退到本站内置代理（与 LibreTV 直连→代理降级链一致），代理也失败才隐藏
+                                if (!target.dataset.proxyTried) {
+                                  target.dataset.proxyTried = '1';
+                                  target.src = getBuiltinImageProxyUrl(
+                                    source.poster
+                                  );
+                                } else {
+                                  target.style.display = 'none';
+                                }
                               }}
                             />
                           )}

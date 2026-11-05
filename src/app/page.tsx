@@ -56,7 +56,7 @@ function LatestSection({
           ? Array.from({ length: 8 }).map((_, index) => (
               <div
                 key={index}
-                className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
+                className='min-w-[96px] w-24 sm:min-w-[208px] sm:w-52'
               >
                 <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'>
                   <div className='absolute inset-0 bg-gray-300 dark:bg-gray-700'></div>
@@ -67,7 +67,7 @@ function LatestSection({
           : items.map((item) => (
               <div
                 key={`${item.source}-${item.id}`}
-                className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
+                className='min-w-[96px] w-24 sm:min-w-[208px] sm:w-52'
               >
                 <VideoCard
                   from='search'
@@ -285,7 +285,7 @@ function HomeClient() {
                   </button>
                 )}
               </div>
-              <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
+              <div className='justify-start grid grid-cols-3 gap-x-2.5 gap-y-10 px-0 sm:px-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8'>
                 {favoriteItems.map((item) => (
                   <div key={item.id + item.source} className='w-full'>
                     <VideoCard

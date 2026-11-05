@@ -20,7 +20,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { processImageUrl } from '@/lib/utils';
+import { getBuiltinImageProxyUrl, processImageUrl } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -94,6 +94,11 @@ function PlayPageClient() {
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
   const [videoCover, setVideoCover] = useState('');
+  // 封面回退链（与 LibreTV SmartImage 一致）：直连失败时改走本站内置代理
+  const [coverUseBuiltinProxy, setCoverUseBuiltinProxy] = useState(false);
+  useEffect(() => {
+    setCoverUseBuiltinProxy(false);
+  }, [videoCover]);
   // 当前源和ID
   const [currentSource, setCurrentSource] = useState(
     searchParams.get('source') || ''
@@ -1690,9 +1695,16 @@ function PlayPageClient() {
               <div className='bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden'>
                 {videoCover ? (
                   <img
-                    src={processImageUrl(videoCover)}
+                    src={
+                      coverUseBuiltinProxy
+                        ? getBuiltinImageProxyUrl(videoCover)
+                        : processImageUrl(videoCover)
+                    }
                     alt={videoTitle}
                     className='w-full h-full object-cover'
+                    onError={() => {
+                      if (!coverUseBuiltinProxy) setCoverUseBuiltinProxy(true);
+                    }}
                   />
                 ) : (
                   <span className='text-gray-600 dark:text-gray-400'>
