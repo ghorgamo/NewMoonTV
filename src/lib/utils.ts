@@ -423,6 +423,7 @@ export interface LatestSortable {
   remarks?: string;
   episodes?: string[];
   update_time?: string;
+  add_time?: number;
 }
 
 /**
@@ -434,6 +435,24 @@ export function compareByLatestUpdate(
   b: LatestSortable
 ): number {
   const byTime = (b.update_time || '').localeCompare(a.update_time || '');
+  if (byTime !== 0) return byTime;
+  const bySeason = parseSeasonNumber(b.title) - parseSeasonNumber(a.title);
+  if (bySeason !== 0) return bySeason;
+  return (
+    parseLatestEpisodeNumber(b.remarks, b.episodes?.length) -
+    parseLatestEpisodeNumber(a.remarks, a.episodes?.length)
+  );
+}
+
+/**
+ * 「最新更新」按添加时间排序：添加时间倒序优先；时间相同再按季数、集数
+ *（与更新时间排序同款兜底，保证最新季、最新集排在前面）。
+ */
+export function compareByLatestAdd(
+  a: LatestSortable,
+  b: LatestSortable
+): number {
+  const byTime = (b.add_time || 0) - (a.add_time || 0);
   if (byTime !== 0) return byTime;
   const bySeason = parseSeasonNumber(b.title) - parseSeasonNumber(a.title);
   if (bySeason !== 0) return bySeason;

@@ -4,6 +4,7 @@ import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 import { SearchResult } from '@/lib/types';
 import {
   cleanHtmlTags,
+  compareByLatestAdd,
   compareByLatestUpdate,
   normalizeTitleForMatch,
 } from '@/lib/utils';
@@ -66,6 +67,7 @@ interface VodListItem {
   vod_pic: string;
   vod_remarks?: string;
   vod_time?: string;
+  vod_time_add?: string | number;
   vod_play_url?: string;
   vod_class?: string;
   vod_area?: string;
@@ -184,6 +186,16 @@ function parseEpisodes(vodPlayUrl?: string): string[] {
   });
 }
 
+// 添加时间归一化为 Unix 秒时间戳：源站多为数字秒时间戳，个别源站给日期字符串时转秒；缺失或非法则为 0（排最后）
+function toAddTime(v: string | number | undefined): number {
+  if (v == null) return 0;
+  if (typeof v === 'number') return v;
+  const n = Number(v);
+  if (!Number.isNaN(n)) return n;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? 0 : Math.floor(t / 1000);
+}
+
 function mapItem(item: VodListItem, site: ApiSite): SearchResult {
   return {
     id: item.vod_id.toString(),
@@ -199,6 +211,7 @@ function mapItem(item: VodListItem, site: ApiSite): SearchResult {
     douban_id: item.vod_douban_id,
     remarks: item.vod_remarks,
     update_time: item.vod_time,
+    add_time: toAddTime(item.vod_time_add),
   };
 }
 
@@ -264,6 +277,10 @@ export async function GET(request: Request) {
   const page = Math.min(Math.max(Number.isNaN(pageParam) ? 1 : pageParam, 1), 5);
   // genre：类型筛选（all/guochan/oumei/riben/hanguo/dongman/jilupian），不传即全部
   const genre = searchParams.get('genre') || 'all';
+  // sort：排序键（add=添加时间，update=更新时间；默认 update，保持首页等老调用行为不变，
+  // 最新更新页默认传 add，与 kubb 的默认排序一致）
+  const sort = searchParams.get('sort') === 'add' ? 'add' : 'update';
+  const compare = sort === 'add' ? compareByLatestAdd : compareByLatestUpdate;
 
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
@@ -295,15 +312,15 @@ export async function GET(request: Request) {
       const prev = byTitle.get(key);
       // 同一作品保留更「新」的一条：更新时间较新者胜出；
       // 时间相同则保留季数/集数更大的一条（与最终排序口径一致）
-      if (!prev || compareByLatestUpdate(item, prev) < 0) {
+      if (!prev || compare(item, prev) < 0) {
         byTitle.set(key, item);
       }
     }
   }
 
-  // 统一排序：更新时间倒序（vod_time 为 'YYYY-MM-DD HH:mm:ss'，字符串序即时间序），
-  // 时间相同再按季数/集数倒序（见 compareByLatestUpdate）
-  const merged = Array.from(byTitle.values()).sort(compareByLatestUpdate);
+  // 统一排序：按排序键倒序（更新时间用 vod_time 字符串序，添加时间用 vod_time_add 数值序），
+  // 时间相同再按季数/集数倒序（见 compareByLatestUpdate/compareByLatestAdd）
+  const merged = Array.from(byTitle.values()).sort(compare);
 
   const finalResults = merged.slice(0, limit);
 

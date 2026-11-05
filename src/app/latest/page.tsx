@@ -54,6 +54,8 @@ function LatestPageClient() {
   const tab = TABS.find((t) => t.type === typeParam) || TABS[1];
 
   const [genre, setGenre] = useState<string>('all');
+  // 排序键（与 kubb 一致）：add=添加时间（默认）、update=更新时间
+  const [sort, setSort] = useState<'add' | 'update'>('add');
   const [items, setItems] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -65,13 +67,13 @@ function LatestPageClient() {
   const fetchPage = useCallback(
     async (pg: number) => {
       const res = await fetch(
-        `/api/latest?category=${tab.category}&genre=${genre}&limit=${PAGE_LIMIT}&pg=${pg}`
+        `/api/latest?category=${tab.category}&genre=${genre}&limit=${PAGE_LIMIT}&pg=${pg}&sort=${sort}`
       );
       if (!res.ok) throw new Error('栏目数据请求失败');
       const data = await res.json();
       return (data.results || []) as SearchResult[];
     },
-    [tab.category, genre]
+    [tab.category, genre, sort]
   );
 
   // 跨页去重：同一作品只留一条（接口内已按页去重，这里防跨页重复）
@@ -262,8 +264,35 @@ function LatestPageClient() {
             ))}
           </div>
 
+          {/* 排序切换（与 kubb 一致）：添加时间默认，更新时间可选 */}
+          <div className='mb-4 flex flex-wrap items-center gap-2'>
+            <span className='text-[13px] text-gray-500 dark:text-gray-400'>
+              排序：
+            </span>
+            {(
+              [
+                { label: '添加时间', value: 'add' },
+                { label: '更新时间', value: 'update' },
+              ] as const
+            ).map((s) => (
+              <button
+                key={s.value}
+                onClick={() => setSort(s.value)}
+                className={`rounded-full border px-3.5 py-1 text-[13px] font-medium transition-colors ${
+                  sort === s.value
+                    ? 'border-green-600 bg-green-600 text-white'
+                    : 'border-gray-300 text-gray-600 hover:border-green-600 hover:text-green-600 dark:border-gray-600 dark:text-gray-300 dark:hover:border-green-500 dark:hover:text-green-400'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           <p className='mb-6 text-sm text-gray-500 dark:text-gray-400'>
-            按资源更新时间排序：最新季、最新集排在最前面。
+            {sort === 'add'
+              ? '按资源添加时间排序：最近新入库的排在最前面。'
+              : '按资源更新时间排序：最新季、最新集排在最前面。'}
           </p>
 
           {error ? (
