@@ -10,6 +10,7 @@ export interface ApiSite {
   api: string;
   name: string;
   detail?: string;
+  latest?: boolean;
 }
 
 interface ConfigFileStruct {

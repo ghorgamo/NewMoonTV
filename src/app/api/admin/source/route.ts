@@ -10,7 +10,7 @@ import { IStorage } from '@/lib/types';
 export const runtime = 'edge';
 
 // 支持的操作类型
-type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort';
+type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort' | 'latest';
 
 interface BaseBody {
   action?: Action;
@@ -38,7 +38,14 @@ export async function POST(request: NextRequest) {
     const username = authInfo.username;
 
     // 基础校验
-    const ACTIONS: Action[] = ['add', 'disable', 'enable', 'delete', 'sort'];
+    const ACTIONS: Action[] = [
+      'add',
+      'disable',
+      'enable',
+      'delete',
+      'sort',
+      'latest',
+    ];
     if (!username || !action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -99,6 +106,17 @@ export async function POST(request: NextRequest) {
         if (!entry)
           return NextResponse.json({ error: '源不存在' }, { status: 404 });
         entry.disabled = false;
+        break;
+      }
+      case 'latest': {
+        // 切换该源是否进入最新更新（服务端翻转，客户端刷新后即见新状态）
+        const { key } = body as { key?: string };
+        if (!key)
+          return NextResponse.json({ error: '缺少 key 参数' }, { status: 400 });
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry)
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        entry.latest = !entry.latest;
         break;
       }
       case 'delete': {

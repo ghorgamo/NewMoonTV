@@ -70,6 +70,7 @@ interface DataSource {
   api: string;
   detail?: string;
   disabled?: boolean;
+  latest?: boolean;
   from: 'config' | 'custom';
 }
 
@@ -88,10 +89,14 @@ const SourceDraggableRow = memo(function SourceDraggableRow({
   source,
   onToggleEnable,
   onDelete,
+  onToggleLatest,
+  speed,
 }: {
   source: DataSource;
   onToggleEnable: (key: string) => void;
   onDelete: (key: string) => void;
+  onToggleLatest: (key: string) => void;
+  speed?: { ms: number | null; ok: boolean };
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: source.key });
@@ -143,6 +148,24 @@ const SourceDraggableRow = memo(function SourceDraggableRow({
         >
           {!source.disabled ? '启用中' : '已禁用'}
         </span>
+      </td>
+      <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
+        <input
+          type='checkbox'
+          checked={!!source.latest}
+          onChange={() => onToggleLatest(source.key)}
+          className='h-4 w-4 accent-green-600 cursor-pointer'
+          title='勾选后该源进入最新更新'
+        />
+      </td>
+      <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
+        {!speed ? (
+          <span className='text-gray-400'>—</span>
+        ) : speed.ok && speed.ms !== null ? (
+          `${(speed.ms / 1000).toFixed(2)}s`
+        ) : (
+          <span className='text-red-500 dark:text-red-400'>失败</span>
+        )}
       </td>
       <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
         <button
@@ -825,6 +848,11 @@ const VideoSourceConfig = ({
   const [sources, setSources] = useState<DataSource[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [orderChanged, setOrderChanged] = useState(false);
+  // 测速结果：key -> { ms（毫秒，失败为 null）, ok }；测速按钮与测速列共用
+  const [speeds, setSpeeds] = useState<
+    Record<string, { ms: number | null; ok: boolean }>
+  >({});
+  const [testingSpeed, setTestingSpeed] = useState(false);
   const [newSource, setNewSource] = useState<DataSource>({
     name: '',
     key: '',
@@ -904,6 +932,61 @@ const VideoSourceConfig = ({
     [callSourceApi]
   );
 
+  const handleToggleLatest = useCallback(
+    (key: string) => {
+      // 服务端翻转 latest，成功后刷新配置即见新状态
+      callSourceApi({ action: 'latest', key }).catch(() => {
+        console.error('操作失败', 'latest', key);
+      });
+    },
+    [callSourceApi]
+  );
+
+  const handleSpeedTest = async () => {
+    if (testingSpeed) return;
+    setTestingSpeed(true);
+    try {
+      const resp = await fetch('/api/admin/speedtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `测速失败: ${resp.status}`);
+      }
+      const data = await resp.json();
+      const map: Record<string, { ms: number | null; ok: boolean }> = {};
+      (data.results || []).forEach(
+        (r: { key: string; ms: number | null; ok: boolean }) => {
+          map[r.key] = { ms: r.ms, ok: r.ok };
+        }
+      );
+      setSpeeds(map);
+      // 按速度重排：通的按耗时从小到大，不通的沉底（保持原相对顺序）；
+      // 顺序变化后亮起「保存排序」，保存后顺序持久化
+      setSources((prev) => {
+        const withIdx = prev.map((s, i) => ({ s, i }));
+        withIdx.sort((a, b) => {
+          const sa = map[a.s.key];
+          const sb = map[b.s.key];
+          const aOk = sa?.ok === true;
+          const bOk = sb?.ok === true;
+          if (aOk && bOk) return (sa.ms ?? Infinity) - (sb.ms ?? Infinity);
+          if (aOk) return -1;
+          if (bOk) return 1;
+          return a.i - b.i;
+        });
+        return withIdx.map((x) => x.s);
+      });
+      setOrderChanged(true);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '测速失败');
+    } finally {
+      setTestingSpeed(false);
+    }
+  };
+
   const handleAddSource = () => {
     if (!newSource.name || !newSource.key || !newSource.api) return;
     callSourceApi({
@@ -964,13 +1047,27 @@ const VideoSourceConfig = ({
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
           视频源列表
         </h4>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className='px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors'
-        >
-          {showAddForm ? '取消' : '添加视频源'}
-        </button>
+        <div className='flex items-center gap-2'>
+          <button
+            onClick={handleSpeedTest}
+            disabled={testingSpeed}
+            className='px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm rounded-lg transition-colors'
+          >
+            {testingSpeed ? '测速中…' : '测速'}
+          </button>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className='px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors'
+          >
+            {showAddForm ? '取消' : '添加视频源'}
+          </button>
+        </div>
       </div>
+
+      <p className='text-xs text-gray-500 dark:text-gray-400'>
+        勾选「最新更新」的源会进入最新更新；一个都不勾时沿用默认的 5
+        个源。测速后列表按速度从快到慢排列，点击「保存排序」可保存顺序。
+      </p>
 
       {showAddForm && (
         <div className='p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 space-y-4'>
@@ -1045,6 +1142,12 @@ const VideoSourceConfig = ({
               <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 状态
               </th>
+              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                最新更新
+              </th>
+              <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                测速
+              </th>
               <th className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 操作
               </th>
@@ -1068,6 +1171,8 @@ const VideoSourceConfig = ({
                     source={source}
                     onToggleEnable={handleToggleEnable}
                     onDelete={handleDelete}
+                    onToggleLatest={handleToggleLatest}
+                    speed={speeds[source.key]}
                   />
                 ))}
               </tbody>

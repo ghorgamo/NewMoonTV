@@ -16,8 +16,8 @@ export const runtime = 'edge';
 // 天然满足「最新季、最新集排前面」。服务端负责：按分类表把子分类一并纳入拉取、
 // 多源归并、按归一化标题去重、最终统一按更新时间倒序，绕开个别站分类顺序异常的问题。
 
-// 聚合源固定为这组（2026-11-05 用户定）：量子资源 + 非凡影视 + 极速 + 电影天堂 + 360。
-// 如意复测仍慢（videolist 约 2.1 秒），按用户要求已去掉。
+// 默认兜底名单（管理后台一个最新更新源都没勾时用，2026-11-05 用户定）：
+// 量子资源 + 非凡影视 + 极速 + 电影天堂 + 360。如意复测仍慢（videolist 约 2.1 秒），已去掉。
 // 非凡影视不在仓库配置文件里（后台单独加的源），故按名字匹配；非凡API 连不上，已排除在外。
 // 注意：5 源在「全部」视图下一次请求电影约 70 次、剧集约 51 次，仍略超免费版 50 次上限
 // （主因是 360 的分类表大），后面的源会部分拿不到数据（失败静默、页面不挂）；
@@ -302,22 +302,28 @@ export async function GET(request: Request) {
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
 
-  // 选源：只用上面这组固定名单，不再用其他启用源补位（补位会混进镜像源等非目标源）。
-  // 非凡API 按 key 排除；名字含「非凡API」的也排除，避免它以别名出现。
+  // 选源：优先用管理后台勾选的最新更新源（SourceConfig.latest，在 /admin 源列表勾选）；
+  // 一个都不勾时，沿用下面这组默认名单兜底（保证未配置时最新更新不断流）。
+  // 兜底名单里非凡API 按 key 排除、名字含「非凡API」的也排除；勾选名单以用户勾选为准，不再硬拦。
+  const flagged = enabledSites.filter((s) => s.latest === true);
   const picked: ApiSite[] = [];
-  for (const pref of PREFERRED_SOURCES) {
-    const site = enabledSites.find((s) => {
-      if (pref.key) return s.key === pref.key;
-      if (pref.name) return (s.name || '').includes(pref.name);
-      return false;
-    });
-    if (
-      site &&
-      !EXCLUDED_SOURCE_KEYS.includes(site.key) &&
-      !(site.name || '').includes('非凡API') &&
-      !picked.some((s) => s.key === site.key)
-    ) {
-      picked.push(site);
+  if (flagged.length > 0) {
+    picked.push(...flagged);
+  } else {
+    for (const pref of PREFERRED_SOURCES) {
+      const site = enabledSites.find((s) => {
+        if (pref.key) return s.key === pref.key;
+        if (pref.name) return (s.name || '').includes(pref.name);
+        return false;
+      });
+      if (
+        site &&
+        !EXCLUDED_SOURCE_KEYS.includes(site.key) &&
+        !(site.name || '').includes('非凡API') &&
+        !picked.some((s) => s.key === site.key)
+      ) {
+        picked.push(site);
+      }
     }
   }
   if (picked.length === 0) {
