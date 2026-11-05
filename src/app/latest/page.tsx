@@ -75,8 +75,11 @@ function LatestPageClient() {
   );
 
   // 跨页去重：同一作品只留一条（接口内已按页去重，这里防跨页重复）
+  // 非凡API 的更新不在最新更新页展示（该源在用户侧测速全部失败）
   const takeFresh = useCallback((results: SearchResult[]) => {
     return results.filter((r) => {
+      if (r.source === 'feifanapi' || r.source_name === '非凡API')
+        return false;
       const key = normalizeTitleForMatch(r.title);
       if (seenRef.current.has(key)) return false;
       seenRef.current.add(key);
