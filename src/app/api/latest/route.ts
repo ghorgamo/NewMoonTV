@@ -291,6 +291,12 @@ export async function GET(request: Request) {
   // sort：排序键（add=添加时间，update=更新时间；默认 update，保持首页等老调用行为不变，
   // 最新更新页默认传 add，与 kubb 的默认排序一致）
   const sort = searchParams.get('sort') === 'add' ? 'add' : 'update';
+  // year：年份筛选（all=全部，this=今年，last=去年，older=更早；按作品首播年份 vod_year 计，
+  // 非法值按全部处理；年份未知（unknown/空）的条目只在全部下出现）
+  const yearParam = searchParams.get('year') || 'all';
+  const yearFilter = ['this', 'last', 'older'].includes(yearParam)
+    ? yearParam
+    : 'all';
   const compare = sort === 'add' ? compareByLatestAdd : compareByLatestUpdate;
 
   const config = await getConfig();
@@ -341,7 +347,21 @@ export async function GET(request: Request) {
   // 时间相同再按季数/集数倒序（见 compareByLatestUpdate/compareByLatestAdd）
   const merged = Array.from(byTitle.values()).sort(compare);
 
-  const finalResults = merged.slice(0, limit);
+  // 年份筛选在归并排序后、分页切片前做：每批源数据独立筛，保证每页返回的都是符合年份的条目。
+  // 年份取作品首播年份（mapItem 已从 vod_year 抽出 4 位年份）；未知年份只在全部下出现。
+  const currentYear = new Date().getFullYear();
+  let filtered = merged;
+  if (yearFilter !== 'all') {
+    filtered = merged.filter((item) => {
+      const y = parseInt(item.year, 10);
+      if (Number.isNaN(y)) return false;
+      if (yearFilter === 'this') return y === currentYear;
+      if (yearFilter === 'last') return y === currentYear - 1;
+      return y < currentYear - 1;
+    });
+  }
+
+  const finalResults = filtered.slice(0, limit);
 
   // 评分（豆瓣/IMDb）不在这里回填：单次调用的子请求要留给源站拉取，
   // 评分由前端渲染后分批调 /api/scores 异步补（见 lib/scores.client.ts）。

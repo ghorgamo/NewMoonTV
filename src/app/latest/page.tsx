@@ -56,6 +56,8 @@ function LatestPageClient() {
   const [genre, setGenre] = useState<string>('all');
   // 排序键（与 kubb 一致）：add=添加时间（默认）、update=更新时间
   const [sort, setSort] = useState<'add' | 'update'>('add');
+  // 年份筛选：all=全部、this=今年、last=去年、older=更早（按作品首播年份计）
+  const [year, setYear] = useState<'all' | 'this' | 'last' | 'older'>('all');
   const [items, setItems] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -67,13 +69,13 @@ function LatestPageClient() {
   const fetchPage = useCallback(
     async (pg: number) => {
       const res = await fetch(
-        `/api/latest?category=${tab.category}&genre=${genre}&limit=${PAGE_LIMIT}&pg=${pg}&sort=${sort}`
+        `/api/latest?category=${tab.category}&genre=${genre}&limit=${PAGE_LIMIT}&pg=${pg}&sort=${sort}&year=${year}`
       );
       if (!res.ok) throw new Error('栏目数据请求失败');
       const data = await res.json();
       return (data.results || []) as SearchResult[];
     },
-    [tab.category, genre, sort]
+    [tab.category, genre, sort, year]
   );
 
   // 跨页去重：同一作品只留一条（接口内已按页去重，这里防跨页重复）
@@ -104,7 +106,8 @@ function LatestPageClient() {
         if (cancelled) return;
         const fresh = takeFresh(results);
         setItems(fresh);
-        setHasMore(results.length >= PAGE_LIMIT);
+        // 年份筛选时一批可能很 sparse（符合年份的少），短批不代表到底，翻到第 5 页再停
+        setHasMore(year !== 'all' ? true : results.length >= PAGE_LIMIT);
         // 评分异步补（豆瓣/IMDb），不阻塞卡片渲染
         enrichScores(fresh, tab.category, setItems);
       })
@@ -118,7 +121,7 @@ function LatestPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [fetchPage, takeFresh]);
+  }, [fetchPage, takeFresh, year]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || loading) return;
@@ -137,14 +140,17 @@ function LatestPageClient() {
       setItems((prev) => [...prev, ...fresh]);
       // 新一批的评分同样异步补
       enrichScores(fresh, tab.category, setItems);
-      // 整页都是已见过的重复条目时同样视为到底，避免无限空转
-      setHasMore(results.length >= PAGE_LIMIT && fresh.length > 0);
+      // 整页都是已见过的重复条目时同样视为到底，避免无限空转；
+      // 年份筛选时短批不代表到底，翻到第 5 页再停
+      setHasMore(
+        year !== 'all' ? next < 5 : results.length >= PAGE_LIMIT && fresh.length > 0
+      );
     } catch {
       // 加载失败保持现状，继续滚动可再次触发
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, loading, fetchPage, takeFresh]);
+  }, [loadingMore, hasMore, loading, fetchPage, takeFresh, year]);
 
   // 追加式瀑布流分列：columns 存的是 items 的下标。
   // 已排入的卡片永不换列、不移动；新一批只按当前各列高度往最矮的列底部追加。
@@ -289,10 +295,40 @@ function LatestPageClient() {
             ))}
           </div>
 
+          {/* 年份筛选：按作品首播年份计，今年/去年/更早 */}
+          <div className='mb-4 flex flex-wrap items-center gap-2'>
+            <span className='text-[13px] text-gray-500 dark:text-gray-400'>
+              年份：
+            </span>
+            {(
+              [
+                { label: '全部', value: 'all' },
+                { label: '今年', value: 'this' },
+                { label: '去年', value: 'last' },
+                { label: '更早', value: 'older' },
+              ] as const
+            ).map((y) => (
+              <button
+                key={y.value}
+                onClick={() => setYear(y.value)}
+                className={`rounded-full border px-3.5 py-1 text-[13px] font-medium transition-colors ${
+                  year === y.value
+                    ? 'border-green-600 bg-green-600 text-white'
+                    : 'border-gray-300 text-gray-600 hover:border-green-600 hover:text-green-600 dark:border-gray-600 dark:text-gray-300 dark:hover:border-green-500 dark:hover:text-green-400'
+                }`}
+              >
+                {y.label}
+              </button>
+            ))}
+          </div>
+
           <p className='mb-6 text-sm text-gray-500 dark:text-gray-400'>
             {sort === 'add'
               ? '按资源添加时间排序：最近新入库的排在最前面。'
               : '按资源更新时间排序：最新季、最新集排在最前面。'}
+            {year === 'this' && '年份：只显示今年首播的作品。'}
+            {year === 'last' && '年份：只显示去年首播的作品。'}
+            {year === 'older' && '年份：只显示更早年份首播的作品。'}
           </p>
 
           {error ? (
