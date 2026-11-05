@@ -10,7 +10,14 @@ import { IStorage } from '@/lib/types';
 export const runtime = 'edge';
 
 // 支持的操作类型
-type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort' | 'latest';
+type Action =
+  | 'add'
+  | 'disable'
+  | 'enable'
+  | 'delete'
+  | 'sort'
+  | 'latest'
+  | 'edit';
 
 interface BaseBody {
   action?: Action;
@@ -45,6 +52,7 @@ export async function POST(request: NextRequest) {
       'delete',
       'sort',
       'latest',
+      'edit',
     ];
     if (!username || !action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
@@ -117,6 +125,32 @@ export async function POST(request: NextRequest) {
         if (!entry)
           return NextResponse.json({ error: '源不存在' }, { status: 404 });
         entry.latest = !entry.latest;
+        break;
+      }
+      case 'edit': {
+        // 只允许改后台自加的源：文件源的名称与地址每次读取都会以配置文件为准，
+        // 管理后台改了也会被盖回去，故直接拒绝，避免改了又被还原的假象
+        const { key, name, api, detail } = body as {
+          key?: string;
+          name?: string;
+          api?: string;
+          detail?: string;
+        };
+        if (!key || !name || !api) {
+          return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
+        }
+        const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+        if (!entry)
+          return NextResponse.json({ error: '源不存在' }, { status: 404 });
+        if (entry.from === 'config') {
+          return NextResponse.json(
+            { error: '该源来自配置文件，不可在此编辑' },
+            { status: 400 }
+          );
+        }
+        entry.name = name;
+        entry.api = api;
+        entry.detail = detail;
         break;
       }
       case 'delete': {

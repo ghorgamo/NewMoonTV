@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { GripVertical } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { memo, Suspense, useCallback, useEffect, useState } from 'react';
+import { memo, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
@@ -91,15 +91,42 @@ const SourceDraggableRow = memo(function SourceDraggableRow({
   onDelete,
   onToggleLatest,
   speed,
+  onSave,
 }: {
   source: DataSource;
   onToggleEnable: (key: string) => void;
   onDelete: (key: string) => void;
   onToggleLatest: (key: string) => void;
   speed?: { ms: number | null; ok: boolean };
+  onSave: (
+    key: string,
+    patch: { name: string; api: string; detail?: string }
+  ) => Promise<void>;
 }) {
+  // 行内编辑态（行内自持）：点编辑时用当前源信息初始化草稿，保存成功才退出
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: '', api: '', detail: '' });
   const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: source.key });
+    useSortable({ id: source.key, disabled: editing });
+
+  const enterEdit = () => {
+    setDraft({
+      name: source.name,
+      api: source.api,
+      detail: source.detail || '',
+    });
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!draft.name || !draft.api) return;
+    try {
+      await onSave(source.key, draft);
+      setEditing(false);
+    } catch {
+      // 错误已由调用处提示，留在编辑态可重试
+    }
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -121,22 +148,66 @@ const SourceDraggableRow = memo(function SourceDraggableRow({
         <GripVertical size={16} />
       </td>
       <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
-        {source.name}
+        {editing ? (
+          <input
+            type='text'
+            value={draft.name}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, name: e.target.value }))
+            }
+            placeholder='名称'
+            className='w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm select-text'
+          />
+        ) : (
+          source.name
+        )}
       </td>
       <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
         {source.key}
       </td>
       <td
-        className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 max-w-[12rem] truncate'
-        title={source.api}
+        className={
+          editing
+            ? 'px-6 py-4 text-sm text-gray-900 dark:text-gray-100'
+            : 'px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 max-w-[12rem] truncate'
+        }
+        title={editing ? undefined : source.api}
       >
-        {source.api}
+        {editing ? (
+          <input
+            type='text'
+            value={draft.api}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, api: e.target.value }))
+            }
+            placeholder='API 地址'
+            className='w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm select-text'
+          />
+        ) : (
+          source.api
+        )}
       </td>
       <td
-        className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 max-w-[8rem] truncate'
-        title={source.detail || '-'}
+        className={
+          editing
+            ? 'px-6 py-4 text-sm text-gray-900 dark:text-gray-100'
+            : 'px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 max-w-[8rem] truncate'
+        }
+        title={editing ? undefined : source.detail || '-'}
       >
-        {source.detail || '-'}
+        {editing ? (
+          <input
+            type='text'
+            value={draft.detail}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, detail: e.target.value }))
+            }
+            placeholder='Detail 地址（选填）'
+            className='w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm select-text'
+          />
+        ) : (
+          source.detail || '-'
+        )}
       </td>
       <td className='px-6 py-4 whitespace-nowrap max-w-[1rem]'>
         <span
@@ -168,23 +239,51 @@ const SourceDraggableRow = memo(function SourceDraggableRow({
         )}
       </td>
       <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
-        <button
-          onClick={() => onToggleEnable(source.key)}
-          className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${
-            !source.disabled
-              ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
-              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
-          } transition-colors`}
-        >
-          {!source.disabled ? '禁用' : '启用'}
-        </button>
-        {source.from !== 'config' && (
-          <button
-            onClick={() => onDelete(source.key)}
-            className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700/40 dark:hover:bg-gray-700/60 dark:text-gray-200 transition-colors'
-          >
-            删除
-          </button>
+        {editing ? (
+          <>
+            <button
+              onClick={handleSave}
+              disabled={!draft.name || !draft.api}
+              className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white transition-colors'
+            >
+              保存
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700/40 dark:hover:bg-gray-700/60 dark:text-gray-200 transition-colors'
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => onToggleEnable(source.key)}
+              className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${
+                !source.disabled
+                  ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
+                  : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
+              } transition-colors`}
+            >
+              {!source.disabled ? '禁用' : '启用'}
+            </button>
+            {source.from !== 'config' && (
+              <button
+                onClick={enterEdit}
+                className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700/40 dark:hover:bg-gray-700/60 dark:text-gray-200 transition-colors'
+              >
+                编辑
+              </button>
+            )}
+            {source.from !== 'config' && (
+              <button
+                onClick={() => onDelete(source.key)}
+                className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700/40 dark:hover:bg-gray-700/60 dark:text-gray-200 transition-colors'
+              >
+                删除
+              </button>
+            )}
+          </>
         )}
       </td>
     </tr>
@@ -853,6 +952,8 @@ const VideoSourceConfig = ({
     Record<string, { ms: number | null; ok: boolean }>
   >({});
   const [testingSpeed, setTestingSpeed] = useState(false);
+  // 首屏是否已按服务端顺序初始化过（后续刷新不再重置顺序，见初始化 effect）
+  const sourcesInitializedRef = useRef(false);
   const [newSource, setNewSource] = useState<DataSource>({
     name: '',
     key: '',
@@ -877,12 +978,27 @@ const VideoSourceConfig = ({
     })
   );
 
-  // 初始化
+  // 初始化：首屏用服务端顺序；后续刷新（勾选/启用/禁用/保存后）只按 key 更新字段、
+  // 不动本地顺序——否则测速排好的顺序一次勾选就被还原
   useEffect(() => {
     if (config?.SourceConfig) {
-      setSources(config.SourceConfig);
-      // 进入时重置 orderChanged
-      setOrderChanged(false);
+      if (!sourcesInitializedRef.current) {
+        sourcesInitializedRef.current = true;
+        setSources(config.SourceConfig);
+        setOrderChanged(false);
+      } else {
+        setSources((prev) => {
+          const map = new Map(config.SourceConfig.map((s) => [s.key, s]));
+          const kept = prev
+            .filter((s) => map.has(s.key))
+            .map((s) => map.get(s.key)!);
+          const keptKeys = new Set(kept.map((s) => s.key));
+          return [
+            ...kept,
+            ...config.SourceConfig.filter((s) => !keptKeys.has(s.key)),
+          ];
+        });
+      }
     }
   }, [config]);
 
@@ -942,6 +1058,14 @@ const VideoSourceConfig = ({
     [callSourceApi]
   );
 
+  const handleEditSave = useCallback(
+    (key: string, patch: { name: string; api: string; detail?: string }) => {
+      // 返回 callSourceApi 的 promise，行内编辑成功后才退出编辑态
+      return callSourceApi({ action: 'edit', key, ...patch });
+    },
+    [callSourceApi]
+  );
+
   const handleSpeedTest = async () => {
     if (testingSpeed) return;
     setTestingSpeed(true);
@@ -963,23 +1087,31 @@ const VideoSourceConfig = ({
         }
       );
       setSpeeds(map);
-      // 按速度重排：通的按耗时从小到大，不通的沉底（保持原相对顺序）；
-      // 顺序变化后亮起「保存排序」，保存后顺序持久化
-      setSources((prev) => {
-        const withIdx = prev.map((s, i) => ({ s, i }));
-        withIdx.sort((a, b) => {
-          const sa = map[a.s.key];
-          const sb = map[b.s.key];
-          const aOk = sa?.ok === true;
-          const bOk = sb?.ok === true;
-          if (aOk && bOk) return (sa.ms ?? Infinity) - (sb.ms ?? Infinity);
-          if (aOk) return -1;
-          if (bOk) return 1;
-          return a.i - b.i;
-        });
-        return withIdx.map((x) => x.s);
+      // 按速度重排：通的按耗时从小到大，不通的沉底（保持原相对顺序）
+      const withIdx = sources.map((s, i) => ({ s, i }));
+      withIdx.sort((a, b) => {
+        const sa = map[a.s.key];
+        const sb = map[b.s.key];
+        const aOk = sa?.ok === true;
+        const bOk = sb?.ok === true;
+        if (aOk && bOk) return (sa.ms ?? Infinity) - (sb.ms ?? Infinity);
+        if (aOk) return -1;
+        if (bOk) return 1;
+        return a.i - b.i;
       });
-      setOrderChanged(true);
+      const reordered = withIdx.map((x) => x.s);
+      setSources(reordered);
+      // 测速排好的顺序直接保存，免得一次勾选/刷新就丢了
+      try {
+        await callSourceApi({
+          action: 'sort',
+          order: reordered.map((s) => s.key),
+        });
+        setOrderChanged(false);
+      } catch {
+        // 保存失败时保留本地顺序并亮起「保存排序」，可手动再保存一次
+        setOrderChanged(true);
+      }
     } catch (err) {
       showError(err instanceof Error ? err.message : '测速失败');
     } finally {
@@ -1066,7 +1198,7 @@ const VideoSourceConfig = ({
 
       <p className='text-xs text-gray-500 dark:text-gray-400'>
         勾选「最新更新」的源会进入最新更新；一个都不勾时沿用默认的 5
-        个源。测速后列表按速度从快到慢排列，点击「保存排序」可保存顺序。
+        个源。测速后列表按速度从快到慢排列，顺序自动保存。
       </p>
 
       {showAddForm && (
@@ -1173,6 +1305,7 @@ const VideoSourceConfig = ({
                     onDelete={handleDelete}
                     onToggleLatest={handleToggleLatest}
                     speed={speeds[source.key]}
+                    onSave={handleEditSave}
                   />
                 ))}
               </tbody>
