@@ -113,9 +113,10 @@ export default function VideoCard({
   const actualPoster = aggregateData?.first.poster ?? poster;
   const actualSource = aggregateData?.first.source ?? source;
   const actualId = aggregateData?.first.id ?? id;
-  const actualDoubanId = String(
-    aggregateData?.mostFrequentDoubanId ?? douban_id
-  );
+  const rawDoubanId = aggregateData?.mostFrequentDoubanId ?? douban_id;
+  // 无豆瓣 id 时必须是空串，不能是 String(undefined) 得到的字面 'undefined'，
+  // 否则豆瓣图标会一直显示、点开跳到 movie.douban.com/subject/undefined/
+  const actualDoubanId = rawDoubanId ? String(rawDoubanId) : '';
   const actualEpisodes = aggregateData?.mostFrequentEpisodes ?? episodes;
   const actualYear = aggregateData?.first.year ?? year;
   const actualQuery = query || '';
