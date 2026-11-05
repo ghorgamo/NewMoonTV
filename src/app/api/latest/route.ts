@@ -16,9 +16,20 @@ export const runtime = 'edge';
 // 天然满足「最新季、最新集排前面」。服务端负责：按分类表把子分类一并纳入拉取、
 // 多源归并、按归一化标题去重、最终统一按更新时间倒序，绕开个别站分类顺序异常的问题。
 
-// 首选数据源（更新最密的两个第一梯队源）；配置中缺失时自动用其他启用源补位
-const PREFERRED_SOURCE_KEYS = ['lzcaiji', 'feifanapi'];
-const MAX_SOURCES = 2;
+// 聚合源固定为这组（2026-11-05 用户定）：量子资源 + 非凡影视 + 极速 + 电影天堂 + 360。
+// 如意复测仍慢（videolist 约 2.1 秒），按用户要求已去掉。
+// 非凡影视不在仓库配置文件里（后台单独加的源），故按名字匹配；非凡API 连不上，已排除在外。
+// 注意：5 源在「全部」视图下一次请求电影约 70 次、剧集约 51 次，仍略超免费版 50 次上限
+// （主因是 360 的分类表大），后面的源会部分拿不到数据（失败静默、页面不挂）；
+// 要真全量需分组拉取前端合并。
+const PREFERRED_SOURCES: Array<{ key?: string; name?: string }> = [
+  { key: 'lzcaiji' },
+  { name: '非凡影视' },
+  { key: 'jisu' },
+  { key: 'dyttzy' },
+  { key: 'zy360zz' },
+];
+const EXCLUDED_SOURCE_KEYS = ['feifanapi'];
 const FETCH_TIMEOUT_MS = 6000;
 
 // 栏目 → 大类名关键词（按 maccms 分类表的 type_name 匹配 pid=0 的大类）
@@ -285,15 +296,23 @@ export async function GET(request: Request) {
   const config = await getConfig();
   const enabledSites = config.SourceConfig.filter((s) => !s.disabled);
 
-  // 选源：首选名单优先，其余启用源补位
+  // 选源：只用上面这组固定名单，不再用其他启用源补位（补位会混进镜像源等非目标源）。
+  // 非凡API 按 key 排除；名字含「非凡API」的也排除，避免它以别名出现。
   const picked: ApiSite[] = [];
-  for (const key of PREFERRED_SOURCE_KEYS) {
-    const site = enabledSites.find((s) => s.key === key);
-    if (site) picked.push(site);
-  }
-  for (const site of enabledSites) {
-    if (picked.length >= MAX_SOURCES) break;
-    if (!picked.some((s) => s.key === site.key)) picked.push(site);
+  for (const pref of PREFERRED_SOURCES) {
+    const site = enabledSites.find((s) => {
+      if (pref.key) return s.key === pref.key;
+      if (pref.name) return (s.name || '').includes(pref.name);
+      return false;
+    });
+    if (
+      site &&
+      !EXCLUDED_SOURCE_KEYS.includes(site.key) &&
+      !(site.name || '').includes('非凡API') &&
+      !picked.some((s) => s.key === site.key)
+    ) {
+      picked.push(site);
+    }
   }
   if (picked.length === 0) {
     return NextResponse.json({ results: [] });
