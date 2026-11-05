@@ -478,21 +478,34 @@ function PlayPageClient() {
         )
       ) {
         // 点开的源不在聚合结果里时，把它追加进列表而不是替换整个列表，
-        // 避免换源只剩点开的一个源。
-        const detailSources = await fetchSourceDetail(currentSource, currentId);
-        const seen = new Set(
-          sourcesInfo.map((source) => `${source.source}-${source.id}`)
+        // 避免换源只剩点开的一个源；但同一视频（同 id、同归一化标题）
+        // 已由另一键名的源代表时不再追加，避免同一视频出现两个名字
+        //（如非凡影视与非凡API）并排。
+        const videoAlreadyListed = sourcesInfo.some(
+          (source) =>
+            String(source.id) === String(currentId) &&
+            normalizeTitleForMatch(source.title).toLowerCase() ===
+              normalizeTitleForMatch(videoTitleRef.current).toLowerCase()
         );
-        const merged = [...sourcesInfo];
-        for (const detailSource of detailSources) {
-          const key = `${detailSource.source}-${detailSource.id}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            merged.push(detailSource);
+        if (!videoAlreadyListed) {
+          const detailSources = await fetchSourceDetail(
+            currentSource,
+            currentId
+          );
+          const seen = new Set(
+            sourcesInfo.map((source) => `${source.source}-${source.id}`)
+          );
+          const merged = [...sourcesInfo];
+          for (const detailSource of detailSources) {
+            const key = `${detailSource.source}-${detailSource.id}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              merged.push(detailSource);
+            }
           }
+          sourcesInfo = merged;
+          setAvailableSources(sourcesInfo);
         }
-        sourcesInfo = merged;
-        setAvailableSources(sourcesInfo);
       }
       if (sourcesInfo.length === 0) {
         setError('未找到匹配结果');
@@ -503,9 +516,18 @@ function PlayPageClient() {
       let detailData: SearchResult = sourcesInfo[0];
       // 指定源和id且无需优选
       if (currentSource && currentId && !needPreferRef.current) {
-        const target = sourcesInfo.find(
-          (source) => source.source === currentSource && source.id === currentId
-        );
+        const target =
+          sourcesInfo.find(
+            (source) => source.source === currentSource && source.id === currentId
+          ) ||
+          // 点开的源因与聚合里另一键名的源同视频而未追加时，
+          // 用同 id、同归一化标题的那一项代替，而不是报错。
+          sourcesInfo.find(
+            (source) =>
+              String(source.id) === String(currentId) &&
+              normalizeTitleForMatch(source.title).toLowerCase() ===
+                normalizeTitleForMatch(videoTitleRef.current).toLowerCase()
+          );
         if (target) {
           detailData = target;
         } else {
