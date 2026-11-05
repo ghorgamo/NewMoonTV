@@ -372,7 +372,8 @@ function PlayPageClient() {
           throw new Error('获取视频详情失败');
         }
         const detailData = (await detailResponse.json()) as SearchResult;
-        setAvailableSources([detailData]);
+        // 只返回详情，不直接覆盖源列表；由调用方把点开的源合并进聚合列表，
+        // 避免聚合结果被替换成只剩点开的一个源。
         return [detailData];
       } catch (err) {
         console.error('获取视频详情失败:', err);
@@ -383,28 +384,19 @@ function PlayPageClient() {
     };
     const fetchSourcesData = async (query: string): Promise<SearchResult[]> => {
       // 根据搜索词获取全部源信息
-      try {
-        const response = await fetch(
-          `/api/search?q=${encodeURIComponent(query.trim())}`
-        );
-        if (!response.ok) {
-          throw new Error('搜索失败');
-        }
-        const data = await response.json();
-
-        // 处理搜索结果，根据规则过滤。
-        // 聚合口径与搜索页一致：归一化标题（中文数字转阿拉伯、去空格、忽略大小写）
-        // 相等即同一作品，不再因「第六季」与「第6季」写法不同而丢源；
-        // 年份为 unknown（源站缺失）时不作过滤，否则会把全部资源滤掉只剩点开的那一个。
-        const normalizedTitle = normalizeTitleForMatch(
-          videoTitleRef.current
-        ).toLowerCase();
-        const yearFilter =
-          videoYearRef.current &&
-          videoYearRef.current.toLowerCase() !== 'unknown'
-            ? videoYearRef.current.toLowerCase()
-            : '';
-        const results = data.results.filter(
+      // 聚合口径与搜索页一致：归一化标题（中文数字转阿拉伯、去空格、忽略大小写）
+      // 相等即同一作品，不再因「第六季」与「第6季」写法不同而丢源；
+      // 年份为 unknown（源站缺失）时不作过滤，否则会把全部资源滤掉只剩点开的那一个。
+      const normalizedTitle = normalizeTitleForMatch(
+        videoTitleRef.current
+      ).toLowerCase();
+      const yearFilter =
+        videoYearRef.current &&
+        videoYearRef.current.toLowerCase() !== 'unknown'
+          ? videoYearRef.current.toLowerCase()
+          : '';
+      const filterResults = (results: SearchResult[]) =>
+        results.filter(
           (result: SearchResult) =>
             normalizeTitleForMatch(result.title).toLowerCase() ===
               normalizedTitle &&
@@ -414,6 +406,44 @@ function PlayPageClient() {
                 (searchType === 'movie' && result.episodes.length === 1)
               : true)
         );
+      const attempt = async (): Promise<SearchResult[]> => {
+        // 不走缓存：播放页的源列表必须取当次搜索结果，
+        // 时间戳参数让浏览器缓存与边缘缓存都无法命中旧的残缺响应。
+        const response = await fetch(
+          `/api/search?q=${encodeURIComponent(query.trim())}&_t=${Date.now()}`,
+          { cache: 'no-store' }
+        );
+        if (!response.ok) {
+          throw new Error('搜索失败');
+        }
+        const data = await response.json();
+        return filterResults(data.results || []);
+      };
+      try {
+        let results: SearchResult[] = [];
+        let lastError: unknown = null;
+        try {
+          results = await attempt();
+        } catch (err) {
+          lastError = err;
+        }
+        // 结果过少时重试一次：边缘节点扇出 26 个源时偶有源站超时，
+        // 首轮残缺会让换源只剩点开的一个源，重试可取回完整聚合。
+        if (results.length <= 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          try {
+            const retried = await attempt();
+            if (retried.length > results.length) {
+              results = retried;
+              lastError = null;
+            }
+          } catch (err) {
+            lastError = err;
+          }
+        }
+        if (results.length === 0 && lastError) {
+          throw lastError;
+        }
         setAvailableSources(results);
         return results;
       } catch (err) {
@@ -447,7 +477,22 @@ function PlayPageClient() {
           (source) => source.source === currentSource && source.id === currentId
         )
       ) {
-        sourcesInfo = await fetchSourceDetail(currentSource, currentId);
+        // 点开的源不在聚合结果里时，把它追加进列表而不是替换整个列表，
+        // 避免换源只剩点开的一个源。
+        const detailSources = await fetchSourceDetail(currentSource, currentId);
+        const seen = new Set(
+          sourcesInfo.map((source) => `${source.source}-${source.id}`)
+        );
+        const merged = [...sourcesInfo];
+        for (const detailSource of detailSources) {
+          const key = `${detailSource.source}-${detailSource.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(detailSource);
+          }
+        }
+        sourcesInfo = merged;
+        setAvailableSources(sourcesInfo);
       }
       if (sourcesInfo.length === 0) {
         setError('未找到匹配结果');
