@@ -107,5 +107,13 @@
       "api": "https://api.1080zyku.com/inc/apijson.php",
       "name": "1080JSON"
     }
-  }
+  },
+  "live_sources": [
+    {
+      "key": "iptv-cn",
+      "name": "央视卫视",
+      "url": "https://iptv-cn.github.io/IPTV/countries/cn.m3u",
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    }
+  ]
 }

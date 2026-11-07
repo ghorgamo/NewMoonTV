@@ -13,11 +13,19 @@ export interface ApiSite {
   latest?: boolean;
 }
 
+export interface LiveSource {
+  key: string;
+  name: string;
+  url: string;
+  ua?: string;
+}
+
 interface ConfigFileStruct {
   cache_time?: number;
   api_site: {
     [key: string]: ApiSite;
   };
+  live_sources?: LiveSource[];
   custom_category?: {
     name?: string;
     type: 'movie' | 'tv';
@@ -155,6 +163,14 @@ async function initConfig() {
         // 将 Map 转换回数组
         adminConfig.CustomCategories = Array.from(customCategoriesMap.values());
 
+        // 直播源只来自文件配置
+        adminConfig.LiveSources = (fileConfig.live_sources || []).map((s) => ({
+          key: s.key,
+          name: s.name,
+          url: s.url,
+          ua: s.ua || '',
+        }));
+
         const existedUsers = new Set(
           (adminConfig.UserConfig.Users || []).map((u) => u.username)
         );
@@ -224,6 +240,12 @@ async function initConfig() {
             from: 'config',
             disabled: false,
           })),
+          LiveSources: (fileConfig.live_sources || []).map((s) => ({
+            key: s.key,
+            name: s.name,
+            url: s.url,
+            ua: s.ua || '',
+          })),
         };
       }
 
@@ -273,6 +295,12 @@ async function initConfig() {
           from: 'config',
           disabled: false,
         })) || [],
+      LiveSources: (fileConfig.live_sources || []).map((s) => ({
+        key: s.key,
+        name: s.name,
+        url: s.url,
+        ua: s.ua || '',
+      })),
     } as AdminConfig;
   }
 }
@@ -356,6 +384,14 @@ export async function getConfig(): Promise<AdminConfig> {
       query: category.query,
       from: 'config',
       disabled: false,
+    }));
+
+    // 直播源只来自文件配置
+    adminConfig.LiveSources = (fileConfig.live_sources || []).map((s) => ({
+      key: s.key,
+      name: s.name,
+      url: s.url,
+      ua: s.ua || '',
     }));
 
     const ownerUser = process.env.USERNAME || '';
@@ -464,6 +500,12 @@ export async function resetConfig() {
             disabled: false,
           })) || []
         : [],
+    LiveSources: (fileConfig.live_sources || []).map((s) => ({
+      key: s.key,
+      name: s.name,
+      url: s.url,
+      ua: s.ua || '',
+    })),
   } as AdminConfig;
 
   if (storage && typeof (storage as any).setAdminConfig === 'function') {
@@ -477,6 +519,7 @@ export async function resetConfig() {
   cachedConfig.UserConfig = adminConfig.UserConfig;
   cachedConfig.SourceConfig = adminConfig.SourceConfig;
   cachedConfig.CustomCategories = adminConfig.CustomCategories;
+  cachedConfig.LiveSources = adminConfig.LiveSources;
 }
 
 export async function getCacheTime(): Promise<number> {

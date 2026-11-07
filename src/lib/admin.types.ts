@@ -32,6 +32,13 @@ export interface AdminConfig {
     from: 'config' | 'custom';
     disabled?: boolean;
   }[];
+  /** 直播源（OrionTV /api/live/sources 用）：来自 config.json 的 live_sources */
+  LiveSources: {
+    key: string;
+    name: string;
+    url: string;
+    ua?: string;
+  }[];
 }
 
 export interface AdminConfigResult {
